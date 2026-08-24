@@ -368,34 +368,45 @@ class Helioprojective(SunPyBaseCoordinateFrame):
         """
         Return a boolean array saying which coordinates the observer can see.
 
-        A point is visible if it is not hidden behind the solar sphere.
+        A point is visible unless the body of the Sun is in the way: that is,
+        unless it lies behind the plane through the Sun perpendicular to the
+        line of sight *and* within the shadow cylinder the Sun casts along it.
 
         Parameters
         ----------
         tolerance : `~astropy.units.Quantity`, optional
             Slack allowed when deciding whether a point lies exactly on the
             surface, to absorb rounding error.
+
+        Returns
+        -------
+        `numpy.ndarray` of `bool`
+
+        Notes
+        -----
+        A two-dimensional coordinate is first placed on the solar surface, so
+        directions that miss the Sun altogether report `False`: there is no
+        point on the Sun for them to be visible at.
         """
         coord = self.make_3d() if self.is_2d else self
         observer = _resolve_observer(self.observer, self.obstime)
-        cartesian = coord.cartesian
 
-        # Distance from the Sun's centre to the point.
         heliocentric = coord.transform_to(
             Heliocentric(observer=observer, obstime=self.obstime)
         )
         radius = heliocentric.cartesian.norm()
+
         on_or_above_surface = radius >= self.rsun - tolerance
-
-        # In front of the plane through the Sun perpendicular to the line of
-        # sight, or outside the cylinder that the Sun casts along it.
-        in_front = heliocentric.z > 0 * u.km
-        outside_cylinder = np.hypot(heliocentric.x, heliocentric.y) >= self.rsun - tolerance
-
-        del cartesian
-        return np.logical_and(
-            on_or_above_surface, np.logical_or(in_front, outside_cylinder)
+        in_front_of_the_sun = heliocentric.z > 0 * u.km
+        outside_the_shadow = (
+            np.hypot(heliocentric.x, heliocentric.y) >= self.rsun - tolerance
         )
+
+        with np.errstate(invalid="ignore"):
+            return np.logical_and(
+                on_or_above_surface,
+                np.logical_or(in_front_of_the_sun, outside_the_shadow),
+            )
 
 
 class HeliocentricInertial(SunPyBaseCoordinateFrame):
