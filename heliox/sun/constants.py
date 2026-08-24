@@ -14,6 +14,8 @@ The most frequently used constants are also exposed as module attributes
 (`radius`, `mass`, `au`, ...) for convenience.
 """
 
+from astropy.constants import c as _c
+
 from heliox.sun._constants import _build_table, physical_constants as _si
 
 __all__ = [
@@ -111,8 +113,8 @@ sidereal_rotation_rate = get("sidereal rotation rate")
 first_carrington_rotation = get("first carrington rotation")
 mean_synodic_period = get("mean synodic period")
 
-#: Rate at which the Sun converts mass into energy, from ``L = m c^2``.
-mass_conversion_rate = get("luminosity") / get("mean energy production")
+#: Rate at which the Sun converts rest mass into radiation, from ``L = m c**2``.
+mass_conversion_rate = (get("luminosity") / _c**2).to("kg/s")
 
 #: The angular radius of the Sun seen from a distance of one astronomical unit.
 average_angular_size = None  # populated by heliox.sun.sun to avoid a circular import

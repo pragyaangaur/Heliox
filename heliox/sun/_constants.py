@@ -16,6 +16,7 @@ __all__ = ["constants", "physical_constants"]
 _IAU2015 = "IAU 2015 Resolution B3"
 _ALLEN = "Allen's Astrophysical Quantities, 4th ed."
 _PRSA = "Prsa et al. 2016"
+_DERIVED = "Derived from the nominal solar radius and mass"
 
 physical_constants = {}
 
@@ -42,15 +43,15 @@ _add("age", "Age of the Sun", 4.6e9, "yr", 0.1e9, _ALLEN)
 _add("solar flux unit", "Solar flux unit", 1e-22, "W/(m**2*Hz)", 0.0, "Definition")
 _add("visual magnitude", "Apparent visual magnitude", -26.75, "", 0.0, _ALLEN)
 _add("absolute magnitude", "Absolute visual magnitude", 4.83, "", 0.0, _ALLEN)
-_add("mean energy production", "Mean energy production", 0.1937, "J/(kg*s)", 0.0, _ALLEN)
+_add("mean energy production", "Mean energy production", 1.937e-4, "J/(kg*s)", 0.0, _ALLEN)
 _add("effective temperature", "Nominal effective temperature", 5772.0, "K", 0.0, _IAU2015)
 _add("mean intensity", "Mean intensity", 2.009e7, "W/(m**2*sr)", 0.0, _ALLEN)
-_add("surface area", "Surface area", 6.087e18, "m**2", 0.0, _ALLEN)
-_add("average density", "Mean density", 1409.0, "kg/m**3", 0.0, _ALLEN)
+_add("surface area", "Surface area", 6.0821e+18, "m**2", 0.0, _DERIVED)
+_add("average density", "Mean density", 1409.83, "kg/m**3", 0.0, _DERIVED)
 _add("center density", "Central density", 1.622e5, "kg/m**3", 0.0, _ALLEN)
 _add("surface gravity", "Surface gravity", 274.0, "m/s**2", 0.0, _ALLEN)
 _add("moment of inertia", "Moment of inertia", 5.7e54, "kg*m**2", 0.0, _ALLEN)
-_add("volume", "Volume", 1.412e27, "m**3", 0.0, _ALLEN)
+_add("volume", "Volume", 1.41044e+27, "m**3", 0.0, _DERIVED)
 _add("escape velocity", "Escape velocity at the surface", 6.177e5, "m/s", 0.0, _ALLEN)
 _add("oblateness", "Oblateness", 8.0e-6, "", 1.0e-6, _ALLEN)
 _add("metallicity", "Metallicity Z", 0.0122, "", 0.0, _ALLEN)
