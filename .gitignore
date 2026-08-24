@@ -1,0 +1,51 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+sdist/
+wheels/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+
+# Unit test / coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+coverage.xml
+.hypothesis/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Docs
+docs/_build/
+docs/generated/
+docs/gallery/
+
+# Cached sample data
+heliox/data/sample_data/
+*.fits.gz
+
+# Figures produced by examples
+figures/
