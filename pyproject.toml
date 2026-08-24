@@ -42,7 +42,12 @@ include = ["heliox*"]
 
 [tool.pytest.ini_options]
 testpaths = ["heliox"]
-filterwarnings = ["ignore::DeprecationWarning"]
+addopts = "--doctest-modules"
+doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore:ERFA function:erfa.core.ErfaWarning",
+]
 
 [tool.ruff]
 line-length = 100
