@@ -14,8 +14,10 @@ import numpy as np
 
 import astropy.units as u
 from astropy.coordinates import (
-    AltAz,
+    GCRS,
+    GeocentricMeanEcliptic,
     GeocentricTrueEcliptic,
+    SkyCoord,
     get_body,
     get_body_barycentric,
 )
@@ -119,25 +121,34 @@ def _ecliptic_of_date(t, apparent):
     t : time-like
         The time of the observation.
     apparent : `bool`
-        If `True`, include light travel time and aberration, giving the
-        *apparent* place; if `False`, give the geometric place.
+        If `True`, use the light-travel-time corrected position referred to the
+        *true* equinox of date, which is the classical apparent place. If
+        `False`, use the geometric position referred to the *mean* equinox of
+        date.
+
+    Notes
+    -----
+    For the Sun specifically, correcting for light travel time and correcting
+    for annual aberration shift the position by the same 20.5 arcseconds, so
+    astropy's light-time corrected position is the apparent position to well
+    within the accuracy of this module.
     """
     time = parse_time(t)
     if apparent:
         sun = get_body("sun", time)
+        frame = GeocentricTrueEcliptic(equinox=time)
     else:
-        from astropy.coordinates import GCRS, SkyCoord
-
         sun = SkyCoord(_geometric_sun_from_earth(time), frame=GCRS(obstime=time))
-    return sun.transform_to(GeocentricTrueEcliptic(equinox=time))
+        frame = GeocentricMeanEcliptic(equinox=time)
+    return sun.transform_to(frame)
 
 
 def true_longitude(t):
     """
     The Sun's true (geometric) ecliptic longitude, referred to the mean equinox of date.
 
-    This omits the roughly 20 arcsecond shift caused by aberration and by the
-    finite travel time of light, both of which `apparent_longitude` includes.
+    This omits the roughly 20 arcsecond shift from aberration and light travel
+    time that `apparent_longitude` includes.
     """
     return _ecliptic_of_date(t, apparent=False).lon.to(u.deg)
 
@@ -148,9 +159,13 @@ def true_latitude(t):
 
 
 def apparent_longitude(t):
-    """The Sun's apparent ecliptic longitude, including aberration and nutation."""
-    dpsi, _ = _nutation(t)
-    return (_ecliptic_of_date(t, apparent=True).lon + dpsi).to(u.deg)
+    """
+    The Sun's apparent ecliptic longitude.
+
+    Referred to the true equinox of date, so it includes both nutation and the
+    20.5 arcsecond shift from aberration.
+    """
+    return _ecliptic_of_date(t, apparent=True).lon.to(u.deg)
 
 
 def apparent_latitude(t):
@@ -158,36 +173,60 @@ def apparent_latitude(t):
     return _ecliptic_of_date(t, apparent=True).lat.to(u.deg)
 
 
+def _ecliptic_to_equatorial(lon, lat, obliquity):
+    """Rotate ecliptic coordinates into equatorial ones about the given obliquity."""
+    ra = np.arctan2(
+        np.sin(lon) * np.cos(obliquity) - np.tan(lat) * np.sin(obliquity),
+        np.cos(lon),
+    )
+    dec = np.arcsin(
+        np.sin(lat) * np.cos(obliquity) + np.cos(lat) * np.sin(obliquity) * np.sin(lon)
+    )
+    return (ra.to(u.deg) % (360 * u.deg), dec.to(u.deg))
+
+
 def true_rightascension(t):
     """The Sun's true right ascension, referred to the mean equinox of date."""
-    return _true_equatorial(t)[0]
+    return _ecliptic_to_equatorial(
+        true_longitude(t), true_latitude(t), mean_obliquity_of_ecliptic(t)
+    )[0]
 
 
 def true_declination(t):
     """The Sun's true declination, referred to the mean equinox of date."""
-    return _true_equatorial(t)[1]
-
-
-def _true_equatorial(t):
-    """Convert the Sun's true ecliptic place into right ascension and declination."""
-    lon = true_longitude(t)
-    lat = true_latitude(t)
-    obl = mean_obliquity_of_ecliptic(t)
-    ra = np.arctan2(
-        np.sin(lon) * np.cos(obl) - np.tan(lat) * np.sin(obl),
-        np.cos(lon),
-    )
-    dec = np.arcsin(np.sin(lat) * np.cos(obl) + np.cos(lat) * np.sin(obl) * np.sin(lon))
-    return (ra.to(u.deg) % (360 * u.deg), dec.to(u.deg))
+    return _ecliptic_to_equatorial(
+        true_longitude(t), true_latitude(t), mean_obliquity_of_ecliptic(t)
+    )[1]
 
 
 def apparent_rightascension(t):
     """The Sun's apparent right ascension, referred to the true equinox of date."""
-    return get_body("sun", parse_time(t)).ra.to(u.deg)
+    return _ecliptic_to_equatorial(
+        apparent_longitude(t), apparent_latitude(t), true_obliquity_of_ecliptic(t)
+    )[0]
 
 
 def apparent_declination(t):
     """The Sun's apparent declination, referred to the true equinox of date."""
+    return _ecliptic_to_equatorial(
+        apparent_longitude(t), apparent_latitude(t), true_obliquity_of_ecliptic(t)
+    )[1]
+
+
+def geocentric_rightascension(t):
+    """
+    The Sun's right ascension referred to the ICRS axes rather than to a
+    dynamical equinox.
+
+    This is what `astropy.coordinates.get_body` returns directly, and it
+    differs from `apparent_rightascension` by accumulated precession -- about
+    11 arcminutes for a date in 2013.
+    """
+    return get_body("sun", parse_time(t)).ra.to(u.deg)
+
+
+def geocentric_declination(t):
+    """The Sun's declination referred to the ICRS axes."""
     return get_body("sun", parse_time(t)).dec.to(u.deg)
 
 

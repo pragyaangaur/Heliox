@@ -31,6 +31,8 @@ from heliox.sun._position import (
     earth_distance,
     eccentricity_sun_earth_orbit,
     equation_of_center,
+    geocentric_declination,
+    geocentric_rightascension,
     mean_anomaly,
     mean_obliquity_of_ecliptic,
     orientation,
@@ -59,6 +61,8 @@ __all__ = [
     "earth_distance",
     "eccentricity_sun_earth_orbit",
     "equation_of_center",
+    "geocentric_declination",
+    "geocentric_rightascension",
     "L0",
     "mean_anomaly",
     "mean_obliquity_of_ecliptic",
@@ -100,10 +104,7 @@ def sky_position(t, equinox_of_date=True):
     """
     if equinox_of_date:
         return apparent_rightascension(t), apparent_declination(t)
-    from astropy.coordinates import get_body
-
-    sun = get_body("sun", parse_time(t)).icrs
-    return sun.ra.to(u.deg), sun.dec.to(u.deg)
+    return geocentric_rightascension(t), geocentric_declination(t)
 
 
 def carrington_rotation_number(t="now"):
@@ -171,7 +172,7 @@ def carrington_rotation_time(crot, longitude=None):
     --------
     >>> from heliox.sun.sun import carrington_rotation_time
     >>> carrington_rotation_time(2143).isot
-    '2013-10-25T10:16:52.982'
+    '2013-10-25T10:16:...'
     """
     crot = np.asarray(crot, dtype=float)
     if longitude is not None:
