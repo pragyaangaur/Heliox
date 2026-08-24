@@ -15,6 +15,7 @@ which is what examples and tests need, but they are not observations.
 import os
 from pathlib import Path
 
+import numpy as np
 from astropy.io import fits
 
 from heliox.data._synthetic import make_hdu
@@ -98,17 +99,39 @@ def get_sample_file(name):
 
 
 def _sequence_files():
-    """Generate and return the paths of the AIA sample sequence."""
-    paths = []
-    for index, obstime in enumerate(_SEQUENCE_TIMES):
-        path = cache_directory() / f"aia_171_sequence_{index}.fits"
-        if not path.exists():
-            # Reuse one seed so the images differ only by their timestamps,
-            # which is what makes a sequence look like a sequence.
-            hdu = make_hdu("aia", (256, 256), obstime=obstime, seed=171)
-            hdu.writeto(path, overwrite=True)
-        paths.append(str(path))
-    return paths
+    """
+    Generate and return the paths of the AIA sample sequence.
+
+    Every frame starts from the same base image so that the sequence shows the
+    same active regions throughout, then is shifted westward and given fresh
+    noise. The shift stands in for solar rotation, which is what makes a
+    running difference of the sequence show anything at all.
+    """
+    from scipy.ndimage import shift as _shift
+
+    paths = [
+        cache_directory() / f"aia_171_sequence_{index}.fits"
+        for index in range(len(_SEQUENCE_TIMES))
+    ]
+    if all(path.exists() for path in paths):
+        return [str(path) for path in paths]
+
+    base = make_hdu("aia", (256, 256), obstime=_SEQUENCE_TIMES[0], seed=171)
+    rng = np.random.default_rng(1710)
+
+    for index, (path, obstime) in enumerate(zip(paths, _SEQUENCE_TIMES)):
+        # About 13 degrees of rotation a day works out at a fraction of a pixel
+        # per ten minutes at this scale, so exaggerate it to something visible.
+        data = _shift(base.data.astype(float), (0.0, 1.5 * index), order=1, mode="nearest")
+        data = data + rng.normal(scale=np.sqrt(np.clip(data, 1.0, None)) * 0.3)
+
+        header = base.header.copy()
+        header["DATE-OBS"] = obstime
+        fits.PrimaryHDU(
+            data=np.clip(data, 0.0, None).astype(np.float32), header=header
+        ).writeto(path, overwrite=True)
+
+    return [str(path) for path in paths]
 
 
 def clear_cache():
