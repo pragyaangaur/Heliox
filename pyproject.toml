@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heliox"
+version = "0.1.0"
+description = "A solar physics toolkit for Python"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+authors = [{ name = "Pragyaan Gaur" }]
+keywords = ["solar", "physics", "astronomy", "sun", "heliophysics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=1.23",
+    "astropy>=5.3",
+    "scipy>=1.10",
+    "matplotlib>=3.6",
+    "pandas>=1.5",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "pytest-cov"]
+docs = ["sphinx>=6.0", "sphinx-automodapi", "numpydoc"]
+dev = ["heliox[test,docs]", "ruff", "pre-commit"]
+
+[project.urls]
+Homepage = "https://github.com/pragyaangaur/heliox"
+Source = "https://github.com/pragyaangaur/heliox"
+Issues = "https://github.com/pragyaangaur/heliox/issues"
+
+[tool.setuptools.packages.find]
+include = ["heliox*"]
+
+[tool.pytest.ini_options]
+testpaths = ["heliox"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501", "B008"]
+
+[tool.coverage.run]
+source = ["heliox"]
+omit = ["*/tests/*", "*/conftest.py"]
