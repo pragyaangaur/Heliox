@@ -241,12 +241,15 @@ class TimeRange:
         if cadence.sec <= 0 or window.sec <= 0:
             raise ValueError("cadence and window must both be positive")
 
-        ranges = []
-        current = self.start
-        while current <= self.end:
-            ranges.append(TimeRange(current, current + window))
-            current = current + cadence
-        return ranges
+        # Step by an integer multiple of the cadence rather than repeatedly
+        # adding to a running total, so rounding error cannot accumulate. A
+        # microsecond of slack keeps a window that lands exactly on the end of
+        # the range from being dropped by floating point noise.
+        n_windows = int(np.floor((self.dt + 1 * u.microsecond) / cadence)) + 1
+        return [
+            TimeRange(self.start + cadence * i, self.start + cadence * i + window)
+            for i in range(n_windows)
+        ]
 
     def previous(self):
         """Move the interval backwards in place by its own length, and return it."""
