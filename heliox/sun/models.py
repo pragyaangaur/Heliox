@@ -189,8 +189,15 @@ def sunspot_number_to_flux(sunspot_number):
     """
     Estimate the 10.7 cm radio flux from the international sunspot number.
 
-    Uses the widely quoted quadratic relation of Holland & Vaughn (1984). The
-    result is in solar flux units.
+    Uses the quadratic relation of Holland & Vaughan (1984),
+
+    .. math::
+
+        F_{10.7} = 63.7 + 0.728\,R + 0.00089\,R^2
+
+    which reproduces the observed F10.7 index to within about 10 sfu over a
+    solar cycle. Note that it was fitted to the original (version 1) sunspot
+    number series, so it will read high if given version 2 numbers.
 
     Parameters
     ----------
@@ -206,10 +213,10 @@ def sunspot_number_to_flux(sunspot_number):
     --------
     >>> from heliox.sun.models import sunspot_number_to_flux
     >>> sunspot_number_to_flux(0)
-    <Quantity 67. sfu>
+    <Quantity 63.7 sfu>
     """
     ssn = np.asarray(sunspot_number, dtype=float)
     if np.any(ssn < 0):
         raise ValueError("The sunspot number cannot be negative.")
-    flux = 67.0 + 0.572 * ssn + 0.0575 * ssn**1.5 - 0.0000646 * ssn**2
+    flux = 63.7 + 0.728 * ssn + 0.00089 * ssn**2
     return flux * sfu
