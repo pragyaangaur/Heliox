@@ -138,7 +138,7 @@ class GenericMap:
 
     def _default_plot_settings(self):
         """Plot settings inferred from the metadata; subclasses override this."""
-        return {}
+        return {"norm": self._default_norm()}
 
     # ------------------------------------------------------------------
     # The data itself
@@ -972,6 +972,289 @@ class GenericMap:
             self.spatial_units[1]
         )
         return self._new_instance(meta=meta)
+
+    # ------------------------------------------------------------------
+    # Plotting
+    # ------------------------------------------------------------------
+    def _default_norm(self):
+        """
+        A sensible brightness scaling for this map.
+
+        Solar images span a huge dynamic range, so a linear scale between the
+        minimum and maximum usually shows nothing but the brightest active
+        region. Clipping to a percentile range and applying a square root
+        stretch brings the faint structure out.
+        """
+        from astropy.visualization import ImageNormalize, SqrtStretch
+        from astropy.visualization import AsymmetricPercentileInterval
+
+        finite = self._data[np.isfinite(self._data)]
+        if finite.size == 0:
+            return None
+        interval = AsymmetricPercentileInterval(1.0, 99.9)
+        vmin, vmax = interval.get_limits(finite)
+        if vmin >= vmax:
+            return None
+        return ImageNormalize(vmin=vmin, vmax=vmax, stretch=SqrtStretch())
+
+    def plot(
+        self,
+        axes=None,
+        *,
+        annotate=True,
+        title=None,
+        clip_interval=None,
+        **imshow_kwargs,
+    ):
+        """
+        Draw the map on a set of world-coordinate axes.
+
+        Parameters
+        ----------
+        axes : `~astropy.visualization.wcsaxes.WCSAxes`, optional
+            The axes to draw on. If not given, the current axes are used, and
+            replaced with WCSAxes if they are not already.
+        annotate : `bool`, optional
+            If `True`, set a title and label the axes.
+        title : `str`, optional
+            An explicit title, overriding the generated one.
+        clip_interval : `~astropy.units.Quantity`, optional
+            A pair of percentiles to clip the colour scale to, for example
+            ``[1, 99.9] * u.percent``.
+        **imshow_kwargs
+            Passed to `~matplotlib.axes.Axes.imshow`, overriding
+            `plot_settings`.
+
+        Returns
+        -------
+        `matplotlib.image.AxesImage`
+
+        Notes
+        -----
+        The axes carry the map's WCS, so anything drawn on them afterwards can
+        be positioned in world coordinates with ``axes.plot_coord``.
+        """
+        import matplotlib.pyplot as plt
+        from astropy.visualization import ImageNormalize
+        from astropy.visualization.wcsaxes import WCSAxes
+
+        if axes is None:
+            figure = plt.gcf()
+            axes = figure.gca()
+            if not isinstance(axes, WCSAxes):
+                # Replace the plain axes matplotlib gave us with world-aware ones.
+                position = axes.get_position()
+                figure.delaxes(axes)
+                axes = figure.add_axes(position, projection=self.wcs)
+
+        settings = dict(self.plot_settings)
+        settings.update(imshow_kwargs)
+
+        if clip_interval is not None:
+            clip = u.Quantity(clip_interval, u.percent).to_value(u.percent)
+            if len(clip) != 2:
+                raise ValueError("clip_interval needs exactly two percentiles.")
+            if not 0 <= clip[0] < clip[1] <= 100:
+                raise ValueError(
+                    "clip_interval must be two increasing percentiles between 0 and 100."
+                )
+            vmin, vmax = np.nanpercentile(self._data, clip)
+            existing = settings.get("norm")
+            stretch = getattr(existing, "stretch", None)
+            settings["norm"] = ImageNormalize(vmin=vmin, vmax=vmax, stretch=stretch)
+
+        if settings.get("norm") is not None:
+            # imshow refuses vmin/vmax alongside a norm.
+            settings.pop("vmin", None)
+            settings.pop("vmax", None)
+
+        image = axes.imshow(self._data, **settings)
+
+        if annotate:
+            axes.set_title(title if title is not None else self._plot_title())
+            self._label_axes(axes)
+
+        return image
+
+    def _plot_title(self):
+        """The title used when a map is plotted without an explicit one."""
+        measurement = self.measurement
+        if isinstance(measurement, u.Quantity):
+            measurement = f"{measurement.value:g} {measurement.unit}"
+        label = self.nickname or self.instrument or "heliox map"
+        return f"{label} {measurement} {self.date.utc.isot}".replace("  ", " ").strip()
+
+    def _label_axes(self, axes):
+        """Label the two axes according to the coordinate system in use."""
+        ctype = self.coordinate_system.axis1.upper()
+        if ctype.startswith("HPLN"):
+            labels = ("Helioprojective longitude (solar-X)", "Helioprojective latitude (solar-Y)")
+        elif ctype.startswith("CRLN"):
+            labels = ("Carrington longitude", "Carrington latitude")
+        else:
+            labels = ("Heliographic longitude", "Heliographic latitude")
+        axes.set_xlabel(labels[0])
+        axes.set_ylabel(labels[1])
+
+    def peek(self, *, figsize=(8, 8), draw_limb=False, draw_grid=False, **kwargs):
+        """
+        Plot the map in a new figure and show it.
+
+        A quick look, for use at an interactive prompt. Use `plot` when you
+        want control over the figure.
+
+        Parameters
+        ----------
+        figsize : tuple of `float`, optional
+            The size of the figure, in inches.
+        draw_limb : `bool`, optional
+            If `True`, overlay the solar limb.
+        draw_grid : `bool` or `~astropy.units.Quantity`, optional
+            If `True`, overlay a heliographic grid; if a quantity, use it as
+            the grid spacing.
+        **kwargs
+            Passed to `plot`.
+
+        Returns
+        -------
+        `matplotlib.figure.Figure`
+        """
+        import matplotlib.pyplot as plt
+
+        figure = plt.figure(figsize=figsize)
+        axes = figure.add_subplot(projection=self.wcs)
+        self.plot(axes=axes, **kwargs)
+
+        if draw_limb:
+            self.draw_limb(axes=axes)
+        if draw_grid is not False and draw_grid is not None:
+            spacing = draw_grid if isinstance(draw_grid, u.Quantity) else 15 * u.deg
+            self.draw_grid(axes=axes, grid_spacing=spacing)
+
+        figure.tight_layout()
+        return figure
+
+    def draw_limb(self, axes=None, **kwargs):
+        """
+        Draw the solar limb on an existing plot.
+
+        Parameters
+        ----------
+        axes : `~astropy.visualization.wcsaxes.WCSAxes`, optional
+            The axes to draw on; the current axes by default.
+        **kwargs
+            Passed to `heliox.visualization.drawing.limb`.
+
+        Returns
+        -------
+        `list` of `~matplotlib.lines.Line2D`
+        """
+        from heliox.visualization import drawing
+
+        axes = axes if axes is not None else self._current_axes()
+        return drawing.limb(
+            axes, self.observer_coordinate, rsun=self.rsun_meters, **kwargs
+        )
+
+    def draw_grid(self, axes=None, *, grid_spacing=15 * u.deg, system="stonyhurst", **kwargs):
+        """
+        Draw a heliographic grid on an existing plot.
+
+        Parameters
+        ----------
+        axes : `~astropy.visualization.wcsaxes.WCSAxes`, optional
+            The axes to draw on; the current axes by default.
+        grid_spacing : `~astropy.units.Quantity`, optional
+            The spacing between grid lines.
+        system : {'stonyhurst', 'carrington'}, optional
+            Which heliographic convention to draw.
+        **kwargs
+            Passed to `heliox.visualization.drawing.grid`.
+
+        Returns
+        -------
+        `list`
+        """
+        from heliox.visualization import drawing
+
+        axes = axes if axes is not None else self._current_axes()
+        return drawing.grid(
+            axes,
+            self.date,
+            observer=self.observer_coordinate,
+            grid_spacing=grid_spacing,
+            system=system,
+            **kwargs,
+        )
+
+    def draw_quadrangle(self, bottom_left, *, axes=None, **kwargs):
+        """
+        Outline a region of the sky on an existing plot.
+
+        Parameters
+        ----------
+        bottom_left : `~astropy.coordinates.SkyCoord`
+            The bottom left corner, or a two-element coordinate holding both
+            corners.
+        axes : `~astropy.visualization.wcsaxes.WCSAxes`, optional
+            The axes to draw on; the current axes by default.
+        **kwargs
+            Passed to `heliox.visualization.drawing.quadrangle`, including
+            ``top_right``, ``width`` and ``height``.
+
+        Returns
+        -------
+        `list` of `~matplotlib.lines.Line2D`
+        """
+        from heliox.visualization import drawing
+
+        axes = axes if axes is not None else self._current_axes()
+        return drawing.quadrangle(axes, bottom_left, **kwargs)
+
+    def draw_contours(self, levels, axes=None, *, fill=False, **kwargs):
+        """
+        Draw contours of the map's own data.
+
+        Parameters
+        ----------
+        levels : `~astropy.units.Quantity` or array-like
+            The levels to contour at. If given in percent, they are taken as
+            fractions of the map's maximum.
+        axes : `~astropy.visualization.wcsaxes.WCSAxes`, optional
+            The axes to draw on; the current axes by default.
+        fill : `bool`, optional
+            If `True`, fill between the contours instead of outlining them.
+        **kwargs
+            Passed to `~matplotlib.axes.Axes.contour`.
+
+        Returns
+        -------
+        `matplotlib.contour.QuadContourSet`
+        """
+        axes = axes if axes is not None else self._current_axes()
+
+        if isinstance(levels, u.Quantity) and levels.unit == u.percent:
+            levels = np.atleast_1d(levels.to_value(u.percent)) / 100 * self.max()
+        elif isinstance(levels, u.Quantity):
+            levels = levels.to_value(self.unit) if self.unit else levels.value
+        levels = np.atleast_1d(levels)
+
+        contour = axes.contourf if fill else axes.contour
+        return contour(self._data, levels=levels, **kwargs)
+
+    @staticmethod
+    def _current_axes():
+        """Return the current axes, complaining if they are not world-aware."""
+        import matplotlib.pyplot as plt
+        from astropy.visualization.wcsaxes import WCSAxes
+
+        axes = plt.gca()
+        if not isinstance(axes, WCSAxes):
+            raise TypeError(
+                "The current axes do not carry a WCS. Plot the map first, or "
+                "create the axes with projection=map.wcs."
+            )
+        return axes
 
     # ------------------------------------------------------------------
     # Output
