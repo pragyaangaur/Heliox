@@ -222,14 +222,25 @@ def _heliocentric_matrix(observer):
     return np.stack([x_hat, y_hat, z_hat], axis=-2)
 
 
-@frame_transform_graph.transform(DynamicMatrixTransform, HeliographicStonyhurst, Heliocentric)
-def hgs_to_hcc(hgs_frame, hcc_frame):
-    """Rotate heliographic axes so that z points at the observer."""
+@frame_transform_graph.transform(FunctionTransform, HeliographicStonyhurst, Heliocentric)
+def hgs_to_hcc(hgs_coord, hcc_frame):
+    """
+    Rotate heliographic axes so that z points at the observer.
+
+    This is a plain rotation, but it is registered as a function transform
+    rather than a matrix one so that a two-dimensional heliographic coordinate
+    can first be placed on the solar surface. Heliocentric coordinates are
+    lengths, so a direction with no radius has nowhere to go.
+    """
+    if hgs_coord.is_2d:
+        hgs_coord = hgs_coord.make_3d()
+
     observer = _require_observer(hcc_frame, "Heliocentric")
     observer_at_obstime = observer.transform_to(
-        HeliographicStonyhurst(obstime=_require_obstime(hgs_frame, "HeliographicStonyhurst"))
+        HeliographicStonyhurst(obstime=_require_obstime(hgs_coord, "HeliographicStonyhurst"))
     )
-    return _heliocentric_matrix(observer_at_obstime)
+    matrix = _heliocentric_matrix(observer_at_obstime)
+    return hcc_frame.realize_frame(hgs_coord.cartesian.transform(matrix))
 
 
 @frame_transform_graph.transform(DynamicMatrixTransform, Heliocentric, HeliographicStonyhurst)
