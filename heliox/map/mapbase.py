@@ -614,6 +614,366 @@ class GenericMap:
         )
 
     # ------------------------------------------------------------------
+    # Geometry
+    # ------------------------------------------------------------------
+    def _pixel_corners(self, bottom_left, top_right, width, height):
+        """
+        Work out the pixel bounds of a rectangle given in any accepted form.
+
+        Returns a pair of ``(x, y)`` float pixel coordinates for the two
+        corners, before any rounding to whole pixels.
+        """
+        from heliox.coordinates.utils import get_rectangle_coordinates
+
+        if isinstance(bottom_left, SkyCoord) or (
+            hasattr(bottom_left, "frame") and not isinstance(bottom_left, u.Quantity)
+        ):
+            bottom_left, top_right = get_rectangle_coordinates(
+                bottom_left, top_right=top_right, width=width, height=height
+            )
+            first = self.world_to_pixel(bottom_left)
+            second = self.world_to_pixel(top_right)
+            return (
+                (first[0].to_value(u.pix), first[1].to_value(u.pix)),
+                (second[0].to_value(u.pix), second[1].to_value(u.pix)),
+            )
+
+        # Pixel coordinates, given as quantities in pixels.
+        bottom_left = u.Quantity(bottom_left, u.pix).to_value(u.pix)
+        if top_right is not None:
+            top_right = u.Quantity(top_right, u.pix).to_value(u.pix)
+        elif width is not None and height is not None:
+            top_right = (
+                bottom_left[0] + u.Quantity(width, u.pix).to_value(u.pix),
+                bottom_left[1] + u.Quantity(height, u.pix).to_value(u.pix),
+            )
+        else:
+            raise ValueError(
+                "Give either a top right corner, or both a width and a height."
+            )
+        return tuple(bottom_left), tuple(top_right)
+
+    def submap(self, bottom_left, *, top_right=None, width=None, height=None):
+        """
+        Crop the map to a rectangle.
+
+        The rectangle can be given either in world coordinates, as a pair of
+        `~astropy.coordinates.SkyCoord` corners, or in pixels, as a pair of
+        `~astropy.units.Quantity` in pixel units. Either way the metadata is
+        updated so the cropped map still knows where it is pointing.
+
+        Parameters
+        ----------
+        bottom_left : `~astropy.coordinates.SkyCoord` or `~astropy.units.Quantity`
+            The bottom left corner, or a two-element coordinate holding both
+            corners.
+        top_right : `~astropy.coordinates.SkyCoord` or `~astropy.units.Quantity`, optional
+            The top right corner.
+        width, height : `~astropy.units.Quantity`, optional
+            The size of the rectangle, as an alternative to ``top_right``.
+
+        Returns
+        -------
+        `GenericMap`
+            A new map of the same class.
+
+        Notes
+        -----
+        The requested rectangle is expanded outwards to whole pixels, so the
+        result always contains the region you asked for. A rectangle that falls
+        partly outside the map is clipped to what exists.
+
+        Examples
+        --------
+        >>> import astropy.units as u
+        >>> import heliox.map
+        >>> from heliox.data.sample import AIA_171_IMAGE
+        >>> aia = heliox.map.Map(AIA_171_IMAGE)
+        >>> cropped = aia.submap([100, 100] * u.pix, top_right=[199, 199] * u.pix)
+        >>> cropped.data.shape
+        (100, 100)
+        """
+        (x0, y0), (x1, y1) = self._pixel_corners(bottom_left, top_right, width, height)
+
+        # Order the corners, then widen to whole pixels so nothing is lost.
+        left, right = sorted((x0, x1))
+        lower, upper = sorted((y0, y1))
+        left = int(np.floor(left + 0.5))
+        lower = int(np.floor(lower + 0.5))
+        right = int(np.ceil(right - 0.5)) + 1
+        upper = int(np.ceil(upper - 0.5)) + 1
+
+        left = max(left, 0)
+        lower = max(lower, 0)
+        right = min(right, self._data.shape[1])
+        upper = min(upper, self._data.shape[0])
+
+        if right <= left or upper <= lower:
+            raise ValueError(
+                "The requested region does not overlap the map."
+            )
+
+        data = self._data[lower:upper, left:right]
+        meta = MetaDict(self._meta)
+        meta["crpix1"] = float(self._meta["crpix1"]) - left
+        meta["crpix2"] = float(self._meta["crpix2"]) - lower
+        meta["naxis1"] = data.shape[1]
+        meta["naxis2"] = data.shape[0]
+        return self._new_instance(data=data, meta=meta)
+
+    def resample(self, dimensions, method="linear"):
+        """
+        Resample the map onto a grid of a different size.
+
+        Parameters
+        ----------
+        dimensions : `~astropy.units.Quantity`
+            The size of the output, as ``(x, y)`` in pixels.
+        method : `str`, optional
+            The interpolation method, passed to
+            `heliox.image.resample.resample`.
+
+        Returns
+        -------
+        `GenericMap`
+
+        Notes
+        -----
+        This changes the plate scale, and the total signal is not conserved.
+        Use `superpixel` if you want to bin pixels together while preserving
+        the sum.
+
+        Examples
+        --------
+        >>> import astropy.units as u
+        >>> import heliox.map
+        >>> from heliox.data.sample import AIA_171_IMAGE
+        >>> aia = heliox.map.Map(AIA_171_IMAGE)
+        >>> small = aia.resample([128, 128] * u.pix)
+        >>> small.data.shape
+        (128, 128)
+        >>> (small.scale.axis1 / aia.scale.axis1).round(3)
+        <Quantity 4.>
+        """
+        from heliox.image.resample import resample as _resample
+
+        dimensions = u.Quantity(dimensions, u.pix).to_value(u.pix)
+        if len(dimensions) != 2:
+            raise ValueError("Give the output size as two numbers, (x, y).")
+        new_x, new_y = int(dimensions[0]), int(dimensions[1])
+
+        # heliox.image.resample takes numpy axis order.
+        data = _resample(self._data, (new_y, new_x), method=method, center=True)
+
+        old_x, old_y = self._data.shape[1], self._data.shape[0]
+        scale_x, scale_y = new_x / old_x, new_y / old_y
+
+        meta = MetaDict(self._meta)
+        meta["cdelt1"] = float(self._meta["cdelt1"]) / scale_x
+        meta["cdelt2"] = float(self._meta["cdelt2"]) / scale_y
+        # Map the reference pixel through the same resampling, remembering that
+        # a FITS pixel spans from p - 0.5 to p + 0.5.
+        meta["crpix1"] = (float(self._meta["crpix1"]) - 0.5) * scale_x + 0.5
+        meta["crpix2"] = (float(self._meta["crpix2"]) - 0.5) * scale_y + 0.5
+        meta["naxis1"] = new_x
+        meta["naxis2"] = new_y
+        return self._new_instance(data=data, meta=meta)
+
+    def superpixel(self, dimensions, offset=(0, 0) * u.pix, func=np.sum):
+        """
+        Bin neighbouring pixels together.
+
+        Unlike `resample`, this combines whole pixels, so with the default
+        ``func`` of `numpy.sum` the total signal is preserved exactly.
+
+        Parameters
+        ----------
+        dimensions : `~astropy.units.Quantity`
+            The size of each block, as ``(x, y)`` in pixels.
+        offset : `~astropy.units.Quantity`, optional
+            How many pixels to skip at the bottom left before starting.
+        func : callable, optional
+            The reduction applied to each block. Must accept an ``axis``
+            keyword; `numpy.sum` and `numpy.mean` are the usual choices.
+
+        Returns
+        -------
+        `GenericMap`
+
+        Examples
+        --------
+        >>> import astropy.units as u
+        >>> import heliox.map
+        >>> from heliox.data.sample import AIA_171_IMAGE
+        >>> aia = heliox.map.Map(AIA_171_IMAGE)
+        >>> binned = aia.superpixel([2, 2] * u.pix)
+        >>> binned.data.shape
+        (256, 256)
+        >>> bool(abs(binned.data.sum() - aia.data.sum()) < 1)
+        True
+        """
+        from heliox.image.resample import reshape_image_to_4d_superpixel
+
+        dimensions = u.Quantity(dimensions, u.pix).to_value(u.pix).astype(int)
+        offset = u.Quantity(offset, u.pix).to_value(u.pix).astype(int)
+        if len(dimensions) != 2 or len(offset) != 2:
+            raise ValueError("Give both the block size and the offset as (x, y).")
+        if np.any(dimensions < 1):
+            raise ValueError("Each block must be at least one pixel across.")
+        if np.any(offset < 0):
+            raise ValueError("The offset cannot be negative.")
+
+        block_x, block_y = int(dimensions[0]), int(dimensions[1])
+        offset_x, offset_y = int(offset[0]), int(offset[1])
+
+        blocks = reshape_image_to_4d_superpixel(
+            self._data, (block_y, block_x), (offset_y, offset_x)
+        )
+        data = func(func(blocks, axis=3), axis=1)
+
+        meta = MetaDict(self._meta)
+        meta["cdelt1"] = float(self._meta["cdelt1"]) * block_x
+        meta["cdelt2"] = float(self._meta["cdelt2"]) * block_y
+        # The centre of the first output pixel sits at input pixel
+        # offset + (block + 1) / 2 in FITS one-based coordinates.
+        meta["crpix1"] = (
+            float(self._meta["crpix1"]) - offset_x - (block_x + 1) / 2
+        ) / block_x + 1
+        meta["crpix2"] = (
+            float(self._meta["crpix2"]) - offset_y - (block_y + 1) / 2
+        ) / block_y + 1
+        meta["naxis1"] = data.shape[1]
+        meta["naxis2"] = data.shape[0]
+        return self._new_instance(data=data, meta=meta)
+
+    def rotate(
+        self,
+        angle=None,
+        *,
+        rmatrix=None,
+        order=3,
+        scale=1.0,
+        recenter=False,
+        missing=np.nan,
+    ):
+        """
+        Rotate the image, keeping the coordinate metadata consistent.
+
+        Parameters
+        ----------
+        angle : `~astropy.units.Quantity`, optional
+            How far to rotate the image, counter-clockwise. If neither this nor
+            ``rmatrix`` is given, the map is rotated so that solar north points
+            straight up.
+        rmatrix : `numpy.ndarray`, optional
+            A 2x2 rotation matrix, as an alternative to ``angle``.
+        order : `int`, optional
+            The interpolation order, from 0 to 5.
+        scale : `float`, optional
+            An isotropic zoom applied at the same time.
+        recenter : `bool`, optional
+            If `True`, move the reference pixel to the centre of the array.
+        missing : `float`, optional
+            The value to fill in where the rotated image has no data.
+
+        Returns
+        -------
+        `GenericMap`
+
+        Notes
+        -----
+        Rotating resamples the image, so repeated rotations blur it. If you
+        need several rotations, combine the angles and rotate once.
+
+        This assumes square pixels: if the two axes have different plate
+        scales, the rotation and the scaling do not commute and the result
+        would be wrong, so that case is rejected.
+
+        Examples
+        --------
+        >>> import astropy.units as u
+        >>> import heliox.map
+        >>> from heliox.data.sample import AIA_171_IMAGE
+        >>> aia = heliox.map.Map(AIA_171_IMAGE)
+        >>> rotated = aia.rotate(30 * u.deg)
+        >>> rotated.rotation_angle.round(6)
+        <Quantity -30. deg>
+        """
+        from heliox.image.transform import affine_transform, rotation_matrix_2d
+
+        if angle is not None and rmatrix is not None:
+            raise ValueError("Give either an angle or a rotation matrix, not both.")
+
+        cdelt1, cdelt2 = float(self._meta["cdelt1"]), float(self._meta["cdelt2"])
+        if not np.isclose(abs(cdelt1), abs(cdelt2), rtol=1e-6):
+            raise ValueError(
+                "rotate needs square pixels, but this map has different plate "
+                f"scales on its two axes ({cdelt1} and {cdelt2}). Resample it first."
+            )
+
+        if angle is None and rmatrix is None:
+            # Line the image up with solar north.
+            angle = self.rotation_angle
+        if rmatrix is None:
+            rmatrix = rotation_matrix_2d(u.Quantity(angle, u.deg))
+        rmatrix = np.asarray(rmatrix, dtype=float)
+        if rmatrix.shape != (2, 2):
+            raise ValueError("The rotation matrix must be 2x2.")
+
+        reference_pixel = self.reference_pixel.to_value(u.pix)
+        data = affine_transform(
+            self._data,
+            rmatrix,
+            order=order,
+            scale=scale,
+            image_center=reference_pixel,
+            recenter=recenter,
+            missing=missing,
+        )
+
+        meta = MetaDict(self._meta)
+        # Rotating the pixels by R means the world axes are reached through the
+        # inverse rotation, so the PC matrix picks up R inverse.
+        new_pc = self.rotation_matrix @ np.linalg.inv(rmatrix)
+        meta["pc1_1"], meta["pc1_2"] = float(new_pc[0, 0]), float(new_pc[0, 1])
+        meta["pc2_1"], meta["pc2_2"] = float(new_pc[1, 0]), float(new_pc[1, 1])
+        # PC now carries the whole rotation, so any older representation of it
+        # would double count.
+        for key in ("crota1", "crota2", "cd1_1", "cd1_2", "cd2_1", "cd2_2"):
+            meta.pop(key, None)
+
+        meta["cdelt1"] = cdelt1 / scale
+        meta["cdelt2"] = cdelt2 / scale
+
+        if recenter:
+            meta["crpix1"] = (self._data.shape[1] + 1) / 2
+            meta["crpix2"] = (self._data.shape[0] + 1) / 2
+
+        return self._new_instance(data=data, meta=meta)
+
+    def shift_reference_coord(self, axis1, axis2):
+        """
+        Move the reference coordinate, correcting a pointing error.
+
+        Parameters
+        ----------
+        axis1, axis2 : `~astropy.units.Quantity`
+            How far to move the reference coordinate along each world axis.
+
+        Returns
+        -------
+        `GenericMap`
+        """
+        meta = MetaDict(self._meta)
+        meta["crval1"] = float(self._meta["crval1"]) + u.Quantity(axis1).to_value(
+            self.spatial_units[0]
+        )
+        meta["crval2"] = float(self._meta["crval2"]) + u.Quantity(axis2).to_value(
+            self.spatial_units[1]
+        )
+        return self._new_instance(meta=meta)
+
+    # ------------------------------------------------------------------
     # Output
     # ------------------------------------------------------------------
     def save(self, filepath, filetype="auto", **kwargs):
