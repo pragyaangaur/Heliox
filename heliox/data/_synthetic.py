@@ -1,0 +1,468 @@
+"""
+Synthetic solar images and light curves.
+
+Real solar data comes from archives that need network access, credentials and
+gigabytes of disk. For examples, tests and documentation that is more friction
+than it is worth, so heliox generates its own: images with a plausible
+limb-darkened disc, active regions, granulation and an off-limb corona, wrapped
+in headers that carry a correct World Coordinate System and observer position.
+
+The physics is deliberately simple. These images are for exercising the
+software, not for doing science.
+"""
+
+import numpy as np
+from scipy.ndimage import gaussian_filter
+
+import astropy.units as u
+from astropy.io import fits
+
+from heliox.coordinates import get_earth
+from heliox.sun import constants
+from heliox.sun.models import limb_darkening
+from heliox.time import parse_time
+
+__all__ = [
+    "make_disc_image",
+    "make_magnetogram",
+    "make_coronagraph_image",
+    "make_header",
+    "make_hdu",
+]
+
+
+def _radial_grid(shape, centre, radius_in_pixels):
+    """Fractional distance from disc centre, in units of the solar radius."""
+    rows = np.arange(shape[0])[:, np.newaxis]
+    cols = np.arange(shape[1])[np.newaxis, :]
+    return np.hypot(cols - centre[0], rows - centre[1]) / radius_in_pixels
+
+
+def _active_regions(shape, radial, rng, count, amplitude, size):
+    """Place bright blobs on the visible disc, avoiding the poles."""
+    field = np.zeros(shape, dtype=float)
+    rows = np.arange(shape[0])[:, np.newaxis]
+    cols = np.arange(shape[1])[np.newaxis, :]
+
+    placed = 0
+    attempts = 0
+    while placed < count and attempts < 200 * count:
+        attempts += 1
+        # Active regions cluster within about 30 degrees of the equator, which
+        # projects to the middle band of the disc.
+        fractional_radius = rng.uniform(0, 0.9)
+        angle = rng.uniform(0, 2 * np.pi)
+        x = shape[1] / 2 + fractional_radius * np.cos(angle) * shape[1] / 2 * 0.95
+        y = shape[0] / 2 + fractional_radius * np.sin(angle) * shape[0] / 2 * 0.55
+
+        if radial[int(np.clip(y, 0, shape[0] - 1)), int(np.clip(x, 0, shape[1] - 1))] > 0.95:
+            continue
+
+        width = size * rng.uniform(0.6, 1.6)
+        field += amplitude * rng.uniform(0.4, 1.0) * np.exp(
+            -((cols - x) ** 2 + (rows - y) ** 2) / (2 * width**2)
+        )
+        placed += 1
+    return field
+
+
+def make_disc_image(
+    shape=(1024, 1024),
+    *,
+    wavelength=171 * u.AA,
+    field_of_view=1.28,
+    active_regions=6,
+    seed=None,
+):
+    """
+    Generate a synthetic image of the solar disc.
+
+    Extreme ultraviolet wavelengths show a corona that is brighter at the limb
+    than at disc centre, because the line of sight passes through more hot
+    plasma there; visible wavelengths show the opposite, the familiar limb
+    darkening. Both cases are produced here, selected by ``wavelength``.
+
+    Parameters
+    ----------
+    shape : tuple of `int`, optional
+        The shape of the array, as ``(rows, columns)``.
+    wavelength : `~astropy.units.Quantity`, optional
+        The observing wavelength. Anything below 2000 angstroms is treated as
+        a coronal EUV channel.
+    field_of_view : `float`, optional
+        The width of the image in solar radii. The default of 1.28 puts the
+        limb comfortably inside the frame, as SDO/AIA does.
+    active_regions : `int`, optional
+        How many bright regions to scatter over the disc.
+    seed : `int`, optional
+        Seed for the random number generator, so images can be reproduced.
+
+    Returns
+    -------
+    `numpy.ndarray`
+        A 2D array of floats.
+
+    Examples
+    --------
+    >>> from heliox.data._synthetic import make_disc_image
+    >>> image = make_disc_image((64, 64), seed=1)
+    >>> image.shape
+    (64, 64)
+    >>> bool((image >= 0).all())
+    True
+    """
+    rng = np.random.default_rng(seed)
+    radius_in_pixels = min(shape) / (2 * field_of_view)
+    centre = ((shape[1] - 1) / 2, (shape[0] - 1) / 2)
+    radial = _radial_grid(shape, centre, radius_in_pixels)
+
+    on_disc = radial <= 1.0
+    is_euv = u.Quantity(wavelength, u.AA) < 2000 * u.AA
+
+    image = np.zeros(shape, dtype=float)
+
+    if is_euv:
+        # Optically thin emission: brightness grows towards the limb because
+        # the line of sight is longer, then falls off above it.
+        with np.errstate(invalid="ignore", divide="ignore"):
+            path_length = np.where(on_disc, 1.0 / np.sqrt(1.0 - np.clip(radial, 0, 0.995) ** 2), 0.0)
+        image[on_disc] = 100.0 * np.clip(path_length[on_disc], 1.0, 4.0)
+        # Coronal emission above the limb, decaying with height.
+        above = ~on_disc
+        image[above] = 400.0 * np.exp(-(radial[above] - 1.0) / 0.13)
+        blob_amplitude = 1200.0
+    else:
+        image[on_disc] = 1000.0 * limb_darkening(radial[on_disc], wavelength=wavelength)
+        blob_amplitude = 250.0
+
+    # Granulation: correlated noise, only on the disc.
+    granulation = gaussian_filter(rng.normal(size=shape), sigma=max(shape) / 400)
+    granulation /= np.abs(granulation).max() or 1.0
+    image = image * (1.0 + 0.08 * granulation * on_disc)
+
+    if active_regions:
+        image = image + _active_regions(
+            shape, radial, rng, active_regions, blob_amplitude, max(shape) / 40
+        )
+
+    # Photon noise, and a small dark level so nothing is exactly zero.
+    image = image + rng.normal(scale=np.sqrt(np.clip(image, 1.0, None)) * 0.3)
+    return np.clip(image, 0.0, None)
+
+
+def make_magnetogram(shape=(1024, 1024), *, field_of_view=1.15, pairs=5, seed=None):
+    """
+    Generate a synthetic line-of-sight magnetogram.
+
+    Active regions on the Sun are bipolar, so each region is drawn as a pair of
+    opposite-polarity blobs. Field strengths run to a couple of thousand gauss
+    in the strongest spots and a few gauss in the quiet Sun.
+
+    Parameters
+    ----------
+    shape : tuple of `int`, optional
+        The shape of the array.
+    field_of_view : `float`, optional
+        The width of the image in solar radii.
+    pairs : `int`, optional
+        How many bipolar regions to place.
+    seed : `int`, optional
+        Seed for the random number generator.
+
+    Returns
+    -------
+    `numpy.ndarray`
+        Signed field strength in gauss, zero outside the disc.
+
+    Examples
+    --------
+    >>> from heliox.data._synthetic import make_magnetogram
+    >>> field = make_magnetogram((64, 64), seed=1)
+    >>> bool(abs(field.sum()) < abs(field).sum())
+    True
+    """
+    rng = np.random.default_rng(seed)
+    radius_in_pixels = min(shape) / (2 * field_of_view)
+    centre = ((shape[1] - 1) / 2, (shape[0] - 1) / 2)
+    radial = _radial_grid(shape, centre, radius_in_pixels)
+    on_disc = radial <= 1.0
+
+    rows = np.arange(shape[0])[:, np.newaxis]
+    cols = np.arange(shape[1])[np.newaxis, :]
+    field = np.zeros(shape, dtype=float)
+
+    for _ in range(pairs):
+        fractional_radius = rng.uniform(0, 0.85)
+        angle = rng.uniform(0, 2 * np.pi)
+        x = shape[1] / 2 + fractional_radius * np.cos(angle) * shape[1] / 2 * 0.9
+        y = shape[0] / 2 + fractional_radius * np.sin(angle) * shape[0] / 2 * 0.5
+
+        separation = max(shape) / 25 * rng.uniform(0.8, 1.5)
+        tilt = rng.uniform(-0.5, 0.5)  # Joy's law: leading spot closer to the equator
+        width = max(shape) / 70 * rng.uniform(0.7, 1.4)
+        strength = rng.uniform(500, 2500)
+
+        for sign, offset in ((1, -separation / 2), (-1, separation / 2)):
+            field += sign * strength * np.exp(
+                -((cols - (x + offset)) ** 2 + (rows - (y + offset * tilt)) ** 2)
+                / (2 * width**2)
+            )
+
+    # Quiet-Sun salt-and-pepper network.
+    network = gaussian_filter(rng.normal(size=shape), sigma=max(shape) / 300)
+    network *= 20.0 / (np.abs(network).max() or 1.0)
+    return np.where(on_disc, field + network, 0.0)
+
+
+def make_coronagraph_image(shape=(512, 512), *, occulter=2.2, field_of_view=6.0, seed=None):
+    """
+    Generate a synthetic white-light coronagraph image.
+
+    A coronagraph blocks the disc with an occulting disc and records the faint
+    corona around it, which falls off steeply with height and is structured
+    into radial streamers.
+
+    Parameters
+    ----------
+    shape : tuple of `int`, optional
+        The shape of the array.
+    occulter : `float`, optional
+        The radius of the occulting disc, in solar radii.
+    field_of_view : `float`, optional
+        The width of the image in solar radii.
+    seed : `int`, optional
+        Seed for the random number generator.
+
+    Returns
+    -------
+    `numpy.ndarray`
+
+    Examples
+    --------
+    >>> from heliox.data._synthetic import make_coronagraph_image
+    >>> image = make_coronagraph_image((64, 64), seed=1)
+    >>> float(image[32, 32])
+    0.0
+    """
+    rng = np.random.default_rng(seed)
+    radius_in_pixels = min(shape) / (2 * field_of_view)
+    centre = ((shape[1] - 1) / 2, (shape[0] - 1) / 2)
+
+    rows = np.arange(shape[0])[:, np.newaxis]
+    cols = np.arange(shape[1])[np.newaxis, :]
+    dx = cols - centre[0]
+    dy = rows - centre[1]
+    radial = np.hypot(dx, dy) / radius_in_pixels
+    position_angle = np.arctan2(dy, dx)
+
+    # The K corona falls off roughly as r^-7 close in, flattening further out.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        brightness = 1e4 * np.clip(radial, 1.0, None) ** -3.5
+
+    # Streamers: a few broad enhancements at fixed position angles, brightest
+    # near the equator as they are at solar minimum.
+    streamers = np.zeros(shape)
+    for _ in range(4):
+        angle = rng.uniform(0, 2 * np.pi)
+        width = rng.uniform(0.15, 0.4)
+        separation = np.arctan2(
+            np.sin(position_angle - angle), np.cos(position_angle - angle)
+        )
+        streamers += rng.uniform(0.5, 1.5) * np.exp(-(separation**2) / (2 * width**2))
+    brightness = brightness * (1.0 + streamers)
+
+    brightness = np.where(radial < occulter, 0.0, brightness)
+    brightness += rng.normal(scale=2.0, size=shape) * (radial >= occulter)
+    return np.clip(brightness, 0.0, None)
+
+
+def make_header(
+    shape,
+    *,
+    obstime="2013-10-28T12:00:00",
+    field_of_view=1.28,
+    instrument="AIA",
+    telescope="SDO",
+    detector="AIA",
+    wavelength=171 * u.AA,
+    unit="DN",
+    exposure_time=2.0 * u.s,
+    observatory=None,
+):
+    """
+    Build a FITS header describing a synthetic solar image.
+
+    The header carries a complete helioprojective WCS, the observer's
+    heliographic position and distance, and the usual instrument keywords, so
+    that anything reading it -- including `heliox.map.Map` -- has everything it
+    needs.
+
+    Parameters
+    ----------
+    shape : tuple of `int`
+        The shape of the image the header describes.
+    obstime : time-like, optional
+        The observation time.
+    field_of_view : `float`, optional
+        The width of the image in solar radii, which sets the plate scale.
+    instrument, telescope, detector : `str`, optional
+        Instrument identification keywords.
+    wavelength : `~astropy.units.Quantity`, optional
+        The observing wavelength.
+    unit : `str`, optional
+        The value of ``BUNIT``.
+    exposure_time : `~astropy.units.Quantity`, optional
+        The exposure time.
+    observatory : `str`, optional
+        The value of ``OBSRVTRY``; defaults to ``telescope``.
+
+    Returns
+    -------
+    `astropy.io.fits.Header`
+
+    Examples
+    --------
+    >>> from heliox.data._synthetic import make_header
+    >>> header = make_header((64, 64))
+    >>> header['CTYPE1']
+    'HPLN-TAN'
+    >>> round(float(header['CDELT1']), 2)
+    38.62
+    """
+    time = parse_time(obstime)
+    earth = get_earth(time)
+
+    angular_radius = np.arctan(constants.radius / earth.radius).to(u.arcsec)
+    half_width = field_of_view * angular_radius
+    scale = float((2 * half_width / min(shape)).to_value(u.arcsec))
+
+    header = fits.Header()
+    header["SIMPLE"] = True
+    header["BITPIX"] = -32
+    header["NAXIS"] = 2
+    header["NAXIS1"] = shape[1]
+    header["NAXIS2"] = shape[0]
+
+    # World coordinate system. FITS pixel coordinates are one-based, so the
+    # centre of an N-pixel axis is at (N + 1) / 2.
+    header["CTYPE1"] = "HPLN-TAN"
+    header["CTYPE2"] = "HPLT-TAN"
+    header["CUNIT1"] = "arcsec"
+    header["CUNIT2"] = "arcsec"
+    header["CRPIX1"] = (shape[1] + 1) / 2
+    header["CRPIX2"] = (shape[0] + 1) / 2
+    header["CRVAL1"] = 0.0
+    header["CRVAL2"] = 0.0
+    header["CDELT1"] = scale
+    header["CDELT2"] = scale
+    header["CROTA2"] = 0.0
+
+    # Where the observer was.
+    header["DATE-OBS"] = time.utc.isot
+    header["DSUN_OBS"] = earth.radius.to_value(u.m)
+    header["HGLN_OBS"] = earth.lon.to_value(u.deg)
+    header["HGLT_OBS"] = earth.lat.to_value(u.deg)
+    header["RSUN_REF"] = constants.radius.to_value(u.m)
+    header["RSUN_OBS"] = angular_radius.to_value(u.arcsec)
+
+    # Instrument identification.
+    header["TELESCOP"] = telescope
+    header["INSTRUME"] = instrument
+    header["DETECTOR"] = detector
+    header["OBSRVTRY"] = observatory or telescope
+    header["WAVELNTH"] = u.Quantity(wavelength, u.AA).to_value(u.AA)
+    header["WAVEUNIT"] = "angstrom"
+    header["EXPTIME"] = u.Quantity(exposure_time, u.s).to_value(u.s)
+    header["BUNIT"] = unit
+    header["LVL_NUM"] = 1.5
+
+    return header
+
+
+def make_hdu(kind="aia", shape=(1024, 1024), *, obstime="2013-10-28T12:00:00", seed=None):
+    """
+    Build a complete synthetic FITS HDU.
+
+    Parameters
+    ----------
+    kind : {'aia', 'hmi', 'lasco', 'continuum'}, optional
+        Which kind of instrument to imitate.
+    shape : tuple of `int`, optional
+        The shape of the image.
+    obstime : time-like, optional
+        The observation time.
+    seed : `int`, optional
+        Seed for the random number generator.
+
+    Returns
+    -------
+    `astropy.io.fits.PrimaryHDU`
+
+    Examples
+    --------
+    >>> from heliox.data._synthetic import make_hdu
+    >>> hdu = make_hdu('hmi', (64, 64), seed=1)
+    >>> hdu.header['INSTRUME']
+    'HMI'
+    """
+    kind = kind.lower()
+    if kind == "aia":
+        data = make_disc_image(shape, wavelength=171 * u.AA, seed=seed)
+        header = make_header(
+            shape,
+            obstime=obstime,
+            instrument="AIA",
+            telescope="SDO",
+            detector="AIA",
+            wavelength=171 * u.AA,
+            unit="DN",
+        )
+    elif kind == "hmi":
+        data = make_magnetogram(shape, seed=seed)
+        header = make_header(
+            shape,
+            obstime=obstime,
+            field_of_view=1.15,
+            instrument="HMI",
+            telescope="SDO",
+            detector="HMI_FRONT2",
+            wavelength=6173 * u.AA,
+            unit="Gauss",
+            exposure_time=0.0 * u.s,
+        )
+        header["CONTENT"] = "MAGNETOGRAM"
+    elif kind == "continuum":
+        data = make_disc_image(shape, wavelength=6173 * u.AA, field_of_view=1.15, seed=seed)
+        header = make_header(
+            shape,
+            obstime=obstime,
+            field_of_view=1.15,
+            instrument="HMI",
+            telescope="SDO",
+            detector="HMI_FRONT2",
+            wavelength=6173 * u.AA,
+            unit="DN",
+        )
+        header["CONTENT"] = "CONTINUUM INTENSITY"
+    elif kind == "lasco":
+        data = make_coronagraph_image(shape, seed=seed)
+        header = make_header(
+            shape,
+            obstime=obstime,
+            field_of_view=6.0,
+            instrument="LASCO",
+            telescope="SOHO",
+            detector="C2",
+            wavelength=5500 * u.AA,
+            unit="DN",
+            exposure_time=25.0 * u.s,
+        )
+    else:
+        raise ValueError(
+            f"Unknown sample image kind {kind!r}. "
+            "Choose from 'aia', 'hmi', 'continuum' or 'lasco'."
+        )
+
+    # Single precision is plenty for synthetic data and halves the size of
+    # the cached files.
+    return fits.PrimaryHDU(data=data.astype(np.float32), header=header)
