@@ -151,7 +151,7 @@ class MapFactory:
         return pairs
 
     # ------------------------------------------------------------------
-    def __call__(self, *args, silence_errors=False, **kwargs):
+    def __call__(self, *args, sequence=False, sortby="date", silence_errors=False, **kwargs):
         """
         Build one or more maps.
 
@@ -160,6 +160,11 @@ class MapFactory:
         *args
             Filenames, glob patterns, directories, ``(array, header)`` pairs,
             FITS HDUs, existing maps, or lists of any of those.
+        sequence : `bool`, optional
+            If `True`, return a `~heliox.map.MapSequence` rather than a list,
+            even when only one image was found.
+        sortby : {'date', None}, optional
+            How to order a sequence.
         silence_errors : `bool`, optional
             If `True`, skip anything that fails to load instead of raising.
         **kwargs
@@ -167,8 +172,18 @@ class MapFactory:
 
         Returns
         -------
-        `~heliox.map.GenericMap` or `list`
-            A single map if exactly one image was found, otherwise a list.
+        `~heliox.map.GenericMap`, `list`, or `~heliox.map.MapSequence`
+            A single map if exactly one image was found and ``sequence`` is
+            `False`, otherwise a list or a sequence.
+
+        Examples
+        --------
+        >>> import heliox.map
+        >>> from heliox.data.sample import AIA_171_IMAGE, AIA_171_SEQUENCE
+        >>> heliox.map.Map(AIA_171_IMAGE).instrument
+        'AIA'
+        >>> len(heliox.map.Map(AIA_171_SEQUENCE, sequence=True))
+        4
         """
         pairs = self._parse_args(*args, **kwargs)
         reader_kwargs = {
@@ -190,6 +205,11 @@ class MapFactory:
 
         if not maps:
             raise NoMapsInFileError("Nothing could be loaded as a map.")
+
+        if sequence:
+            from heliox.map.mapsequence import MapSequence
+
+            return MapSequence(maps, sortby=sortby)
         return maps[0] if len(maps) == 1 else maps
 
 
