@@ -48,6 +48,7 @@ filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore:ERFA function:erfa.core.ErfaWarning",
     "ignore::astropy.wcs.FITSFixedWarning",
+    "ignore:Animation was deleted:UserWarning",
 ]
 
 [tool.ruff]
