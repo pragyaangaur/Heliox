@@ -69,6 +69,25 @@ def _require_observer(frame, name):
     return observer.make_3d() if observer.is_2d else observer
 
 
+def _same_observer(first, second):
+    """
+    Are two observer attributes the same?
+
+    Compares the stored values rather than resolving them, so that the common
+    case of two frames sharing an observer costs nothing.
+    """
+    if first is second:
+        return True
+    if isinstance(first, str) and isinstance(second, str):
+        return first.lower() == second.lower()
+    if isinstance(first, str) or isinstance(second, str) or first is None or second is None:
+        return False
+    return bool(
+        first.is_equivalent_frame(second)
+        and np.all(first.cartesian.xyz == second.cartesian.xyz)
+    )
+
+
 def _observer_light_travel_distance(frame):
     """The Sun-observer distance to use for the Carrington light travel correction."""
     if frame.observer is None:
@@ -193,6 +212,13 @@ def hci_to_hci(from_frame, to_frame):
 # ---------------------------------------------------------------------------
 # Heliocentric Cartesian
 # ---------------------------------------------------------------------------
+def _observer_at(observer, obstime):
+    """Express an observer in Stonyhurst heliographic coordinates at ``obstime``."""
+    if obstime is None or observer.obstime is None or observer.obstime == obstime:
+        return observer
+    return observer.transform_to(HeliographicStonyhurst(obstime=obstime))
+
+
 def _heliocentric_matrix(observer):
     """
     The matrix taking Stonyhurst heliographic axes into heliocentric ones.
@@ -269,8 +295,21 @@ def hcc_to_hpc(hcc_coord, hpc_frame):
     records, so it is where the observer's distance from the Sun enters.
     """
     observer = _require_observer(hpc_frame, "Helioprojective")
-    distance_to_sun = observer.radius
 
+    # The heliocentric axes are defined by *their* observer, so a coordinate
+    # referred to a different one has to be rotated first. Skipping this step
+    # silently projects the point onto the wrong sky.
+    if hcc_coord.observer is None:
+        raise ConvertError(
+            "The heliocentric frame needs an observer before it can be "
+            "projected onto the sky."
+        )
+    if not _same_observer(hcc_coord.observer, hpc_frame.observer):
+        hcc_coord = hcc_coord.transform_to(
+            Heliocentric(observer=observer, obstime=hpc_frame.obstime or hcc_coord.obstime)
+        )
+
+    distance_to_sun = observer.radius
     cartesian = hcc_coord.cartesian
     x, y, z = cartesian.x, cartesian.y, cartesian.z
 
@@ -297,8 +336,11 @@ def hpc_to_hcc(hpc_coord, hcc_frame):
     if hpc_coord.is_2d:
         hpc_coord = hpc_coord.make_3d()
 
-    observer = _require_observer(hcc_frame, "Heliocentric")
-    distance_to_sun = observer.radius
+    # Undo the projection using the angles' *own* observer, which is the one
+    # they were measured from, and only then rotate into the requested
+    # heliocentric axes.
+    source_observer = _require_observer(hpc_coord, "Helioprojective")
+    distance_to_sun = source_observer.radius
 
     spherical = hpc_coord.represent_as(SphericalRepresentation)
     tx, ty, distance = spherical.lon, spherical.lat, spherical.distance
@@ -307,7 +349,12 @@ def hpc_to_hcc(hpc_coord, hcc_frame):
     y = distance * np.sin(ty)
     z = distance_to_sun - distance * np.cos(ty) * np.cos(tx)
 
-    return hcc_frame.realize_frame(CartesianRepresentation(x=x, y=y, z=z))
+    cartesian = CartesianRepresentation(x=x, y=y, z=z)
+    if _same_observer(hpc_coord.observer, hcc_frame.observer):
+        return hcc_frame.realize_frame(cartesian)
+
+    source_frame = Heliocentric(observer=source_observer, obstime=hpc_coord.obstime)
+    return source_frame.realize_frame(cartesian).transform_to(hcc_frame)
 
 
 @frame_transform_graph.transform(FunctionTransform, Helioprojective, Helioprojective)
