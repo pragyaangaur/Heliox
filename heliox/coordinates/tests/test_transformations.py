@@ -231,7 +231,16 @@ def test_missing_observer_is_reported_clearly():
 def test_helioprojective_without_observers_is_reported_clearly():
     start = Helioprojective(1 * u.arcsec, 1 * u.arcsec, 1 * u.AU, obstime=OBSTIME)
     with pytest.raises(ConvertError, match="need an observer"):
-        start.transform_to(Helioprojective(obstime=OBSTIME))
+        start.transform_to(Helioprojective(obstime="2014-01-01"))
+
+
+def test_helioprojective_to_an_identical_frame_is_a_no_op():
+    # Frames that are already the same must not be routed through heliocentric
+    # coordinates, which would need a distance the coordinate may not have.
+    start = Helioprojective(5000 * u.arcsec, 0 * u.arcsec, obstime=OBSTIME, observer="earth")
+    result = start.transform_to(Helioprojective(obstime=OBSTIME, observer="earth"))
+    assert result.Tx.to_value(u.arcsec) == pytest.approx(5000)
+    assert result.is_2d
 
 
 # ---------------------------------------------------------------------------

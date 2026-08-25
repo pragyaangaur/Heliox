@@ -325,6 +325,13 @@ def hpc_to_hpc(from_coord, to_frame):
     an image from another: the route runs through heliocentric coordinates, so
     the parallax between the two viewpoints is handled properly.
     """
+    if from_coord.is_equivalent_frame(to_frame):
+        # Nothing to do. Short-circuiting matters: the general route runs
+        # through heliocentric coordinates, which needs a distance, and that
+        # would turn a two-dimensional coordinate looking past the Sun into
+        # NaN for no reason.
+        return to_frame.realize_frame(from_coord.data)
+
     if from_coord.observer is None or to_frame.observer is None:
         raise ConvertError(
             "Both helioprojective frames need an observer before one can be "
