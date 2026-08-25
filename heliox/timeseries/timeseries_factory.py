@@ -73,7 +73,7 @@ class TimeSeriesFactory:
         return candidates[-1] if candidates else GenericTimeSeries
 
     # ------------------------------------------------------------------
-    def _parse_args(self, *args, **kwargs):
+    def _parse_args(self, *args, silence_errors=False, **kwargs):
         """Turn the arguments into a list of ``(data, meta, units)`` triples."""
         triples = []
         arguments = list(args)
@@ -92,7 +92,9 @@ class TimeSeriesFactory:
             elif isinstance(argument, (list, tuple)):
                 arguments = list(argument) + arguments
             elif isinstance(argument, (str, os.PathLike)):
-                triples.extend(self._parse_path(argument, **kwargs))
+                triples.extend(
+                    self._parse_path(argument, silence_errors=silence_errors, **kwargs)
+                )
             else:
                 raise TypeError(
                     f"TimeSeries does not know what to do with a "
@@ -102,8 +104,14 @@ class TimeSeriesFactory:
 
         return triples
 
-    def _parse_path(self, path, **kwargs):
-        """Expand a filename, glob or directory and read each file."""
+    def _parse_path(self, path, *, silence_errors=False, **kwargs):
+        """
+        Expand a filename, glob or directory and read each file.
+
+        With ``silence_errors`` set, files that cannot be read are skipped.
+        That matters for directories, which in practice usually contain a
+        README or a checksum file alongside the data.
+        """
         path = Path(path)
         if path.is_dir():
             files = sorted(str(each) for each in path.iterdir() if each.is_file())
@@ -115,7 +123,14 @@ class TimeSeriesFactory:
             if not path.exists():
                 raise FileNotFoundError(f"No such file: {path}")
             files = [str(path)]
-        return [_read_timeseries_file(each, **kwargs) for each in files]
+        triples = []
+        for each in files:
+            try:
+                triples.append(_read_timeseries_file(each, **kwargs))
+            except Exception:
+                if not silence_errors:
+                    raise
+        return triples
 
     # ------------------------------------------------------------------
     def __call__(self, *args, concatenate=False, silence_errors=False, **kwargs):
@@ -146,7 +161,7 @@ class TimeSeriesFactory:
         >>> goes.instrument
         'XRS'
         """
-        triples = self._parse_args(*args, **kwargs)
+        triples = self._parse_args(*args, silence_errors=silence_errors, **kwargs)
 
         series = []
         for triple in triples:
