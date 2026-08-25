@@ -85,7 +85,9 @@ def aia_color_table(wavelength):
     'sdoaia171'
     """
     try:
-        angstrom = int(u.Quantity(wavelength, u.angstrom).to_value(u.angstrom))
+        # Round rather than truncate: converting 17.1 nm gives 170.99999...
+        # angstroms, and truncating that would miss the 171 channel entirely.
+        angstrom = round(u.Quantity(wavelength, u.angstrom).to_value(u.angstrom))
     except (TypeError, u.UnitsError) as exc:
         raise ValueError("The wavelength must be a quantity in angstroms.") from exc
 
