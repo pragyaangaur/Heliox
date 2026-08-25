@@ -28,6 +28,8 @@ __all__ = [
     "make_coronagraph_image",
     "make_header",
     "make_hdu",
+    "make_xray_lightcurve",
+    "make_sunspot_series",
 ]
 
 
@@ -468,3 +470,142 @@ def make_hdu(kind="aia", shape=(1024, 1024), *, obstime="2013-10-28T12:00:00", s
     # Single precision is plenty for synthetic data and halves the size of
     # the cached files.
     return fits.PrimaryHDU(data=data.astype(np.float32), header=header)
+
+
+def make_xray_lightcurve(
+    start="2013-10-28T00:00:00", duration=24 * u.hour, cadence=1 * u.minute, flares=4, seed=None
+):
+    """
+    Generate a synthetic GOES X-ray sensor light curve.
+
+    The X-ray sensor watches the whole Sun in two bands and is the instrument
+    that defines flare classes. A quiet Sun sits at the A or B level, and each
+    flare rises sharply and decays more slowly, which is what this reproduces.
+
+    Parameters
+    ----------
+    start : time-like, optional
+        The start of the series.
+    duration : `~astropy.units.Quantity`, optional
+        How long the series runs for.
+    cadence : `~astropy.units.Quantity`, optional
+        The interval between samples.
+    flares : `int`, optional
+        How many flares to inject.
+    seed : `int`, optional
+        Seed for the random number generator.
+
+    Returns
+    -------
+    `pandas.DataFrame`
+        Columns ``xrsa`` (0.5 to 4 angstroms) and ``xrsb`` (1 to 8 angstroms),
+        both in watts per square metre, indexed by time.
+
+    Examples
+    --------
+    >>> from heliox.data._synthetic import make_xray_lightcurve
+    >>> curve = make_xray_lightcurve(seed=1)
+    >>> list(curve.columns)
+    ['xrsa', 'xrsb']
+    >>> bool((curve['xrsb'] > curve['xrsa']).all())
+    True
+    """
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    n_samples = int(
+        u.Quantity(duration, u.s).to_value(u.s) / u.Quantity(cadence, u.s).to_value(u.s)
+    )
+    times = parse_time(start) + np.arange(n_samples) * u.Quantity(cadence, u.s)
+    minutes = np.arange(n_samples) * u.Quantity(cadence, u.s).to_value(u.minute)
+
+    # A slowly varying B-class background.
+    background = 1.5e-7 * (
+        1 + 0.3 * np.sin(2 * np.pi * minutes / (minutes[-1] or 1)) + 0.05 * rng.normal(size=n_samples)
+    )
+    long_channel = np.clip(background, 1e-9, None)
+
+    for _ in range(flares):
+        peak_time = rng.uniform(0.05, 0.95) * minutes[-1]
+        # Flare classes are logarithmic; draw a peak between C1 and X1.
+        peak_flux = 10 ** rng.uniform(-6, -4)
+        rise = rng.uniform(2, 8)
+        decay = rise * rng.uniform(3, 8)
+
+        offset = minutes - peak_time
+        profile = np.where(
+            offset < 0,
+            np.exp(offset / rise),
+            np.exp(-offset / decay),
+        )
+        long_channel = long_channel + peak_flux * profile
+
+    # The short channel is harder and so is relatively much weaker when quiet,
+    # but brightens far more steeply during a flare.
+    ratio = 0.02 + 0.25 * np.clip((np.log10(long_channel) + 7) / 3, 0, 1)
+    short_channel = long_channel * ratio
+    short_channel = short_channel * (1 + 0.05 * rng.normal(size=n_samples))
+
+    return pd.DataFrame(
+        {
+            "xrsa": np.clip(short_channel, 1e-10, None),
+            "xrsb": np.clip(long_channel, 1e-9, None),
+        },
+        index=pd.DatetimeIndex(times.datetime, name="time"),
+    )
+
+
+def make_sunspot_series(start="2008-01-01", years=13, seed=None):
+    """
+    Generate a synthetic monthly sunspot number and radio flux series.
+
+    Follows an eleven year cycle with the characteristic fast rise and slower
+    decline, plus month-to-month scatter.
+
+    Parameters
+    ----------
+    start : time-like, optional
+        The start of the series.
+    years : `int`, optional
+        How many years to cover.
+    seed : `int`, optional
+        Seed for the random number generator.
+
+    Returns
+    -------
+    `pandas.DataFrame`
+        Columns ``sunspot_number`` and ``f10.7``, indexed by month.
+
+    Examples
+    --------
+    >>> from heliox.data._synthetic import make_sunspot_series
+    >>> series = make_sunspot_series(seed=1)
+    >>> bool((series['sunspot_number'] >= 0).all())
+    True
+    """
+    import pandas as pd
+
+    from heliox.sun.models import sunspot_number_to_flux
+
+    rng = np.random.default_rng(seed)
+    n_months = years * 12
+    times = pd.date_range(parse_time(start).datetime, periods=n_months, freq="MS")
+
+    # A skewed cycle: the rise to maximum takes about four years and the
+    # decline about seven, which is the well known asymmetry.
+    phase = (np.arange(n_months) / 12.0) % 11.0
+    rising = phase < 4.0
+    shape = np.where(
+        rising,
+        np.sin(np.pi * phase / 8.0),
+        np.sin(np.pi * (4.0 + (phase - 4.0) * 4.0 / 7.0) / 8.0),
+    )
+    sunspots = np.clip(120 * shape + rng.normal(scale=12, size=n_months), 0, None)
+
+    return pd.DataFrame(
+        {
+            "sunspot_number": sunspots,
+            "f10.7": sunspot_number_to_flux(sunspots).to_value("sfu"),
+        },
+        index=pd.DatetimeIndex(times, name="time"),
+    )
