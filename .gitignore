@@ -46,5 +46,9 @@ docs/generated/
 heliox/data/sample_data/
 *.fits.gz
 
-# Figures produced by examples
-figures/
+# Figures produced by examples, except the few the README shows.
+figures/*
+!figures/aia_with_overlays.png
+!figures/observer_parallax.png
+!figures/goes_flare.png
+!figures/annual_ephemeris.png
