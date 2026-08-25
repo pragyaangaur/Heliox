@@ -83,15 +83,29 @@ def _same_observer(first, second):
     if isinstance(first, str) or isinstance(second, str) or first is None or second is None:
         return False
     return bool(
-        first.is_equivalent_frame(second)
-        and np.all(first.cartesian.xyz == second.cartesian.xyz)
+        first.is_equivalent_frame(second) and np.all(first.cartesian.xyz == second.cartesian.xyz)
     )
 
 
 def _observer_light_travel_distance(frame):
-    """The Sun-observer distance to use for the Carrington light travel correction."""
+    """
+    The Sun-observer distance to use for the Carrington light travel correction.
+
+    The observer may be given as the literal string ``'self'``, which means the
+    coordinate describes the observer's own position. That is the situation
+    when a FITS header records ``CRLN_OBS`` and ``CRLT_OBS``: the Carrington
+    longitude quoted there is the observer's, so the correct light travel
+    distance is the coordinate's own radius, and resolving a separate observer
+    would be circular.
+    """
     if frame.observer is None:
         return None
+
+    if isinstance(frame.observer, str) and frame.observer.lower() == "self":
+        if frame.has_data and not frame.is_2d:
+            return frame.spherical.distance
+        return None
+
     try:
         observer = _require_observer(frame, "HeliographicCarrington")
     except ConvertError:
@@ -301,8 +315,7 @@ def hcc_to_hpc(hcc_coord, hpc_frame):
     # silently projects the point onto the wrong sky.
     if hcc_coord.observer is None:
         raise ConvertError(
-            "The heliocentric frame needs an observer before it can be "
-            "projected onto the sky."
+            "The heliocentric frame needs an observer before it can be projected onto the sky."
         )
     if not _same_observer(hcc_coord.observer, hpc_frame.observer):
         hcc_coord = hcc_coord.transform_to(
