@@ -102,6 +102,10 @@ class GenericMap:
             if plot_settings is _NOT_SET
             else dict(plot_settings)
         )
+        # An explicitly chosen nickname is part of how the user wants the map
+        # labelled, so carry it across.
+        if hasattr(self, "_nickname"):
+            new._nickname = self._nickname
         return new
 
     def _validate_meta(self):
@@ -279,12 +283,22 @@ class GenericMap:
 
     @property
     def nickname(self):
-        """A short label for the instrument, used in plot titles."""
-        return getattr(self, "_nickname", None) or self.detector or self.instrument
+        """
+        A short label for the instrument, used in plot titles.
+
+        Derived from the metadata unless it has been set explicitly, so that it
+        survives operations such as cropping, which build a new map without
+        going back through ``__init__``.
+        """
+        return getattr(self, "_nickname", None) or self._default_nickname()
 
     @nickname.setter
     def nickname(self, value):
         self._nickname = value
+
+    def _default_nickname(self):
+        """The nickname to use when none has been set; subclasses override this."""
+        return self.detector or self.instrument
 
     # ------------------------------------------------------------------
     # Times

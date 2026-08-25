@@ -32,9 +32,8 @@ class AIAMap(GenericMap):
     Lemen et al. (2012), *Solar Physics* 275, 17.
     """
 
-    def __init__(self, data, header, **kwargs):
-        super().__init__(data, header, **kwargs)
-        self.nickname = f"AIA {int(self._wavelength_angstrom())}"
+    def _default_nickname(self):
+        return f"AIA {int(self._wavelength_angstrom())}"
 
     def _wavelength_angstrom(self):
         """The passband in angstroms, as a plain number."""
@@ -95,9 +94,8 @@ class HMIMap(GenericMap):
     Scherrer et al. (2012), *Solar Physics* 275, 207.
     """
 
-    def __init__(self, data, header, **kwargs):
-        super().__init__(data, header, **kwargs)
-        self.nickname = f"HMI {self.measurement}".strip()
+    def _default_nickname(self):
+        return f"HMI {self.measurement}".strip()
 
     @property
     def observatory(self):

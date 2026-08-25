@@ -25,9 +25,8 @@ class LASCOMap(GenericMap):
     Brueckner et al. (1995), *Solar Physics* 162, 357.
     """
 
-    def __init__(self, data, header, **kwargs):
-        super().__init__(data, header, **kwargs)
-        self.nickname = f"LASCO {self.detector}"
+    def _default_nickname(self):
+        return f"LASCO {self.detector}"
 
     @property
     def observatory(self):
@@ -74,9 +73,8 @@ class EITMap(GenericMap):
     Delaboudiniere et al. (1995), *Solar Physics* 162, 291.
     """
 
-    def __init__(self, data, header, **kwargs):
-        super().__init__(data, header, **kwargs)
-        self.nickname = f"EIT {int(float(self.meta.get('wavelnth', 0)))}"
+    def _default_nickname(self):
+        return f"EIT {int(float(self.meta.get('wavelnth', 0)))}"
 
     @property
     def observatory(self):
