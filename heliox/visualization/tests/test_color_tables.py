@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from matplotlib import colormaps
 from matplotlib.colors import Colormap
 

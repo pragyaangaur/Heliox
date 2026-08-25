@@ -12,11 +12,7 @@ from pathlib import Path
 import pytest
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
-SCRIPTS = sorted(
-    path
-    for path in EXAMPLES.rglob("*.py")
-    if path.name != "_common.py"
-)
+SCRIPTS = sorted(path for path in EXAMPLES.rglob("*.py") if path.name != "_common.py")
 
 
 @pytest.mark.skipif(not SCRIPTS, reason="the examples directory is not present")
@@ -29,9 +25,7 @@ def test_example_runs(script, tmp_path, monkeypatch):
         text=True,
         timeout=300,
     )
-    assert result.returncode == 0, (
-        f"{script.name} failed:\n{result.stdout}\n{result.stderr}"
-    )
+    assert result.returncode == 0, f"{script.name} failed:\n{result.stdout}\n{result.stderr}"
     # Every example prints something worth reading.
     assert result.stdout.strip()
 

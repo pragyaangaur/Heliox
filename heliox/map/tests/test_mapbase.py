@@ -158,6 +158,33 @@ def test_observer_falls_back_to_the_earth(simple_map):
     assert simple_map.observer_coordinate.lon.to_value(u.deg) == pytest.approx(0, abs=1e-6)
 
 
+def test_observer_from_carrington_keywords_only(aia):
+    # Some headers give CRLN_OBS and CRLT_OBS instead of the Stonyhurst pair.
+    # Recovering the observer from them has to use the coordinate's own radius
+    # for the light travel correction, since the observer is what is being
+    # described.
+    from heliox.coordinates import HeliographicCarrington, get_earth
+
+    earth = get_earth(aia.date)
+    carrington = earth.transform_to(HeliographicCarrington(obstime=aia.date, observer=earth))
+
+    meta = aia.meta.copy()
+    del meta["hgln_obs"]
+    del meta["hglt_obs"]
+    meta["crln_obs"] = carrington.lon.to_value(u.deg)
+    meta["crlt_obs"] = carrington.lat.to_value(u.deg)
+
+    recovered = GenericMap(aia.data, meta).observer_coordinate
+    assert recovered.lon.to_value(u.deg) == pytest.approx(earth.lon.to_value(u.deg), abs=1e-6)
+    assert recovered.lat.to_value(u.deg) == pytest.approx(earth.lat.to_value(u.deg), abs=1e-6)
+    assert recovered.radius.to_value(u.m) == pytest.approx(earth.radius.to_value(u.m))
+
+
+def test_carrington_longitude_from_the_header(aia):
+    aia.meta["crln_obs"] = 123.4
+    assert aia.carrington_longitude.to_value(u.deg) == pytest.approx(123.4)
+
+
 def test_rsun_and_dsun(aia):
     assert aia.rsun_meters.to_value(u.m) == pytest.approx(constants.radius.to_value(u.m))
     assert aia.dsun.to_value(u.AU) == pytest.approx(0.9935, abs=1e-3)
