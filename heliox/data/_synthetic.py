@@ -332,7 +332,9 @@ def make_header(
     time = parse_time(obstime)
     earth = get_earth(time)
 
-    angular_radius = np.arctan(constants.radius / earth.radius).to(u.arcsec)
+    # arcsin, matching Helioprojective.angular_radius: the limb is the
+    # tangent point on the solar sphere.
+    angular_radius = np.arcsin(constants.radius / earth.radius).to(u.arcsec)
     half_width = field_of_view * angular_radius
     scale = float((2 * half_width / min(shape)).to_value(u.arcsec))
 

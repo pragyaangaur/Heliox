@@ -67,7 +67,7 @@ def get_observer_meta(observer, rsun=None):
     if rsun is not None:
         meta["rsun_ref"] = float(u.Quantity(rsun).to_value(u.m))
         meta["rsun_obs"] = float(
-            np.arctan(u.Quantity(rsun) / stonyhurst.radius).to_value(u.arcsec)
+            np.arcsin(u.Quantity(rsun) / stonyhurst.radius).to_value(u.arcsec)
         )
     return meta
 

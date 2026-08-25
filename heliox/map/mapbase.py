@@ -352,7 +352,7 @@ class GenericMap:
         for key in ("solar_r", "radius"):
             if key in self._meta:
                 return float(self._meta[key]) * u.arcsec
-        return np.arctan(self.rsun_meters / self.dsun).to(u.arcsec)
+        return np.arcsin(self.rsun_meters / self.dsun).to(u.arcsec)
 
     @property
     def heliographic_latitude(self):

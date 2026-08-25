@@ -270,9 +270,17 @@ def angular_radius(t):
 
     Computed from the nominal solar radius and the Earth-Sun distance at the
     given time, so it varies by about 1.7 percent over the year.
+
+    Notes
+    -----
+    This is ``arcsin(R / d)``, not ``arctan(R / d)``. The visible limb is where
+    the line of sight grazes the solar sphere, and that tangent point is a
+    little inside the point at 90 degrees from disc centre. The difference is
+    only about 0.01 arcseconds from the Earth, but it matters when a coordinate
+    is projected onto the surface right at the limb.
     """
     solar_semidiameter = constants.radius.to(u.AU)
-    return np.arctan(solar_semidiameter / earth_distance(t)).to(u.arcsec)
+    return np.arcsin(solar_semidiameter / earth_distance(t)).to(u.arcsec)
 
 
 def _node_longitude(t):
