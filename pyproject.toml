@@ -29,7 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.0", "pytest-cov"]
-docs = ["sphinx>=6.0", "sphinx-automodapi", "numpydoc"]
+docs = ["sphinx>=6.0"]
 dev = ["heliox[test,docs]", "ruff", "pre-commit"]
 
 [project.urls]

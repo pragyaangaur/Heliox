@@ -41,7 +41,6 @@ ENV/
 # Docs
 docs/_build/
 docs/generated/
-docs/gallery/
 
 # Cached sample data
 heliox/data/sample_data/
