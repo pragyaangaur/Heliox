@@ -53,21 +53,14 @@ class TimeSeriesMetaData:
             for entry in meta:
                 if not (isinstance(entry, tuple) and len(entry) == 3):
                     raise ValueError(
-                        "Each metadata entry must be a (time range, columns, "
-                        "metadata) tuple."
+                        "Each metadata entry must be a (time range, columns, metadata) tuple."
                     )
-                self.metadata.append(
-                    (entry[0], list(entry[1]), MetaDict(entry[2]))
-                )
+                self.metadata.append((entry[0], list(entry[1]), MetaDict(entry[2])))
             return
 
         if timerange is None:
-            raise ValueError(
-                "A metadata mapping needs a time range saying when it applies."
-            )
-        self.metadata.append(
-            (timerange, list(colnames or []), MetaDict(meta))
-        )
+            raise ValueError("A metadata mapping needs a time range saying when it applies.")
+        self.metadata.append((timerange, list(colnames or []), MetaDict(meta)))
 
     # ------------------------------------------------------------------
     def __len__(self):

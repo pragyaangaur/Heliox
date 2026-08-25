@@ -74,7 +74,8 @@ def resample(image, dimensions, method="linear", center=False, minusone=False):
 
     if method == "neighbor":
         indices = [
-            np.clip(np.round(scale[axis] * (np.arange(dimensions[axis]) + offset)), 0, old[axis] - 1
+            np.clip(
+                np.round(scale[axis] * (np.arange(dimensions[axis]) + offset)), 0, old[axis] - 1
             ).astype(int)
             for axis in range(image.ndim)
         ]

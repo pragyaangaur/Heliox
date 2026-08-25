@@ -19,6 +19,8 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
 from heliox.sun._position import (
+    _CARRINGTON_EPOCH_JD,
+    _CARRINGTON_SYNODIC_PERIOD,
     B0,
     L0,
     P,
@@ -43,8 +45,6 @@ from heliox.sun._position import (
     true_longitude,
     true_obliquity_of_ecliptic,
     true_rightascension,
-    _CARRINGTON_EPOCH_JD,
-    _CARRINGTON_SYNODIC_PERIOD,
 )
 from heliox.time import parse_time
 
@@ -133,9 +133,7 @@ def carrington_rotation_number(t="now"):
     """
     time = parse_time(t)
     # A first guess from the mean synodic period, good to within a rotation.
-    estimate = (time.tt.jd - _CARRINGTON_EPOCH_JD) / _CARRINGTON_SYNODIC_PERIOD.to_value(
-        u.day
-    ) + 1
+    estimate = (time.tt.jd - _CARRINGTON_EPOCH_JD) / _CARRINGTON_SYNODIC_PERIOD.to_value(u.day) + 1
     estimate_int, estimate_frac = np.divmod(estimate, 1)
 
     # The exact fraction: L0 runs from 360 down to 0 across one rotation.

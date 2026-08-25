@@ -121,17 +121,13 @@ def test_or_of_identical_attrs_collapses():
 
 
 def test_and_distributes_over_or():
-    combined = a.Time("2013-10-28", "2013-10-29") & (
-        a.Instrument("AIA") | a.Instrument("HMI")
-    )
+    combined = a.Time("2013-10-28", "2013-10-29") & (a.Instrument("AIA") | a.Instrument("HMI"))
     assert isinstance(combined, AttrOr)
     assert len(to_sum_of_products(combined)) == 2
 
 
 def test_or_distributes_from_the_left():
-    combined = (a.Instrument("AIA") | a.Instrument("HMI")) & a.Time(
-        "2013-10-28", "2013-10-29"
-    )
+    combined = (a.Instrument("AIA") | a.Instrument("HMI")) & a.Time("2013-10-28", "2013-10-29")
     assert len(to_sum_of_products(combined)) == 2
 
 

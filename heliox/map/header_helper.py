@@ -50,9 +50,7 @@ def get_observer_meta(observer, rsun=None):
     if getattr(observer, "is_2d", False):
         observer = observer.make_3d()
 
-    stonyhurst = observer.transform_to(
-        HeliographicStonyhurst(obstime=observer.obstime)
-    )
+    stonyhurst = observer.transform_to(HeliographicStonyhurst(obstime=observer.obstime))
     carrington = observer.transform_to(
         HeliographicCarrington(obstime=observer.obstime, observer=stonyhurst)
     )
@@ -66,9 +64,7 @@ def get_observer_meta(observer, rsun=None):
     }
     if rsun is not None:
         meta["rsun_ref"] = float(u.Quantity(rsun).to_value(u.m))
-        meta["rsun_obs"] = float(
-            np.arcsin(u.Quantity(rsun) / stonyhurst.radius).to_value(u.arcsec)
-        )
+        meta["rsun_obs"] = float(np.arcsin(u.Quantity(rsun) / stonyhurst.radius).to_value(u.arcsec))
     return meta
 
 
@@ -158,9 +154,7 @@ def make_fitswcs_header(
             "which CTYPE values to write."
         )
     if type(frame) not in _FRAME_CTYPES:
-        raise ValueError(
-            f"heliox cannot write a FITS header for the {type(frame).__name__} frame."
-        )
+        raise ValueError(f"heliox cannot write a FITS header for the {type(frame).__name__} frame.")
     if frame.obstime is None:
         raise ValueError("The coordinate needs an obstime.")
     if rotation_angle is not None and rotation_matrix is not None:

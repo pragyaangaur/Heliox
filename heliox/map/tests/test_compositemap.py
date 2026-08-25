@@ -2,7 +2,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-
 import pytest  # noqa: E402
 
 import astropy.units as u  # noqa: E402
@@ -14,9 +13,7 @@ from heliox.map import CompositeMap  # noqa: E402
 
 @pytest.fixture
 def composite():
-    return CompositeMap(
-        heliox.map.Map(AIA_171_IMAGE), heliox.map.Map(HMI_MAGNETOGRAM)
-    )
+    return CompositeMap(heliox.map.Map(AIA_171_IMAGE), heliox.map.Map(HMI_MAGNETOGRAM))
 
 
 @pytest.fixture(autouse=True)

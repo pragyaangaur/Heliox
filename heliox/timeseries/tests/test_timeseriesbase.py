@@ -6,8 +6,7 @@ import astropy.units as u
 from astropy.table import Table
 from astropy.time import Time
 
-import heliox.timeseries
-from heliox.data.sample import GOES_XRS_TIMESERIES, NOAA_INDICES_TIMESERIES
+from heliox.data.sample import GOES_XRS_TIMESERIES
 from heliox.time import TimeRange
 from heliox.timeseries import GenericTimeSeries, TimeSeries
 from heliox.util.exceptions import TimeSeriesMetaValidationError
@@ -167,9 +166,7 @@ def test_truncate_with_two_times(goes):
 
 def test_truncate_with_a_timerange(goes):
     window = TimeRange("2013-10-28T02:00", "2013-10-28T04:00")
-    assert len(goes.truncate(window)) == len(
-        goes.truncate("2013-10-28T02:00", "2013-10-28T04:00")
-    )
+    assert len(goes.truncate(window)) == len(goes.truncate("2013-10-28T02:00", "2013-10-28T04:00"))
 
 
 def test_truncate_needs_two_times(goes):

@@ -152,8 +152,7 @@ def header_to_fits(header):
             fits_header.append(fits.Card(key.upper(), value))
         except (ValueError, TypeError) as exc:
             warnings.warn(
-                f"The keyword {key!r} could not be written to FITS and was "
-                f"dropped: {exc}",
+                f"The keyword {key!r} could not be written to FITS and was dropped: {exc}",
                 HelioxMetadataWarning,
                 stacklevel=3,
             )

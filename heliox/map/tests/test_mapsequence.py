@@ -4,7 +4,7 @@ import pytest
 import astropy.units as u
 
 import heliox.map
-from heliox.data.sample import AIA_171_IMAGE, AIA_171_SEQUENCE
+from heliox.data.sample import AIA_171_SEQUENCE
 from heliox.map import MapSequence
 
 
@@ -42,9 +42,7 @@ def test_shape_and_as_array(sequence):
 
 def test_all_maps_same_shape(sequence):
     assert sequence.all_maps_same_shape()
-    mixed = MapSequence(
-        [sequence[0], sequence[1].superpixel([2, 2] * u.pix)], sortby=None
-    )
+    mixed = MapSequence([sequence[0], sequence[1].superpixel([2, 2] * u.pix)], sortby=None)
     assert not mixed.all_maps_same_shape()
     with pytest.raises(ValueError, match="different shapes"):
         mixed.shape
@@ -126,9 +124,7 @@ def test_base_difference_accepts_a_map(sequence):
 
 
 def test_differencing_needs_matching_shapes(sequence):
-    mixed = MapSequence(
-        [sequence[0], sequence[1].superpixel([2, 2] * u.pix)], sortby=None
-    )
+    mixed = MapSequence([sequence[0], sequence[1].superpixel([2, 2] * u.pix)], sortby=None)
     with pytest.raises(ValueError, match="same shape"):
         mixed.running_difference()
 
@@ -166,8 +162,6 @@ def test_animation_needs_maps():
 
 
 def test_animation_needs_matching_shapes(sequence):
-    mixed = MapSequence(
-        [sequence[0], sequence[1].superpixel([2, 2] * u.pix)], sortby=None
-    )
+    mixed = MapSequence([sequence[0], sequence[1].superpixel([2, 2] * u.pix)], sortby=None)
     with pytest.raises(ValueError, match="same shape"):
         mixed.plot()

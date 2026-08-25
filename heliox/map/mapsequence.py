@@ -49,8 +49,7 @@ class MapSequence:
                 for element in item:
                     if not isinstance(element, GenericMap):
                         raise TypeError(
-                            "A map sequence holds maps, but was given a "
-                            f"{type(element).__name__}."
+                            f"A map sequence holds maps, but was given a {type(element).__name__}."
                         )
                     flattened.append(element)
             else:
@@ -148,9 +147,7 @@ class MapSequence:
             If the maps do not all have the same shape.
         """
         if not self.all_maps_same_shape():
-            raise ValueError(
-                "The maps must all have the same shape before they can be stacked."
-            )
+            raise ValueError("The maps must all have the same shape before they can be stacked.")
         return np.stack([each.data for each in self.maps], axis=2)
 
     def all_meta(self):
@@ -192,9 +189,7 @@ class MapSequence:
             def function(each_map, *inner_args, **inner_kwargs):
                 return getattr(each_map, name)(*inner_args, **inner_kwargs)
 
-        return MapSequence(
-            [function(each, *args, **kwargs) for each in self.maps], sortby=None
-        )
+        return MapSequence([function(each, *args, **kwargs) for each in self.maps], sortby=None)
 
     def running_difference(self, *, base=None):
         """
@@ -227,9 +222,7 @@ class MapSequence:
             return MapSequence(differenced, sortby=None)
 
         differenced = [
-            self.maps[index]._new_instance(
-                data=self.maps[index].data - self.maps[index - 1].data
-            )
+            self.maps[index]._new_instance(data=self.maps[index].data - self.maps[index - 1].data)
             for index in range(1, len(self.maps))
         ]
         return MapSequence(differenced, sortby=None)
@@ -254,9 +247,7 @@ class MapSequence:
         paths = []
         for index, each in enumerate(self.maps):
             path = (
-                path_template.format(index=index)
-                if "{" in path_template
-                else path_template % index
+                path_template.format(index=index) if "{" in path_template else path_template % index
             )
             each.save(path, **kwargs)
             paths.append(path)
@@ -311,9 +302,7 @@ class MapSequence:
                 axes.set_title(self.maps[index]._plot_title())
             return (image,)
 
-        return FuncAnimation(
-            figure, update, frames=len(self.maps), interval=interval, blit=False
-        )
+        return FuncAnimation(figure, update, frames=len(self.maps), interval=interval, blit=False)
 
     def peek(self, *, figsize=(8, 8), **kwargs):
         """
@@ -334,4 +323,3 @@ class MapSequence:
 
         plt.figure(figsize=figsize)
         return self.plot(**kwargs)
-

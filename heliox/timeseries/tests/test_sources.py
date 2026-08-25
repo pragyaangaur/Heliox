@@ -2,7 +2,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
@@ -92,8 +91,7 @@ def test_flux_from_flare_class_rejects_nonsense():
 def test_class_thresholds_are_decades():
     values = list(FLARE_CLASSES.values())
     assert all(
-        pytest.approx(values[index + 1] / values[index]) == 10
-        for index in range(len(values) - 1)
+        pytest.approx(values[index + 1] / values[index]) == 10 for index in range(len(values) - 1)
     )
 
 
@@ -112,9 +110,7 @@ def test_goes_units(goes):
 
 
 def test_peak_flux_and_time(goes):
-    assert goes.peak_flux.to_value(u.W / u.m**2) == pytest.approx(
-        goes.data["xrsb"].max()
-    )
+    assert goes.peak_flux.to_value(u.W / u.m**2) == pytest.approx(goes.data["xrsb"].max())
     assert goes.peak_time in goes.time
 
 
@@ -203,9 +199,7 @@ def test_noaa_plot_title(noaa):
 
 
 def test_noaa_validation():
-    frame = pd.DataFrame(
-        {"sunspot_number": [1.0]}, index=pd.DatetimeIndex(["2013-10-28"])
-    )
+    frame = pd.DataFrame({"sunspot_number": [1.0]}, index=pd.DatetimeIndex(["2013-10-28"]))
     assert NOAAIndicesTimeSeries.is_datasource_for(frame, {"instrume": "NOAA-Indices"})
     assert NOAAIndicesTimeSeries.is_datasource_for(frame, {})
     assert not NOAAIndicesTimeSeries.is_datasource_for(

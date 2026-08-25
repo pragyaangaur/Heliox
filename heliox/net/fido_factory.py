@@ -142,11 +142,7 @@ class UnifiedDownloaderFactory:
                         "This table does not remember which client produced it, "
                         "so its files cannot be fetched."
                     )
-                paths.extend(
-                    table.client.fetch(
-                        table, path=path, overwrite=overwrite, **kwargs
-                    )
-                )
+                paths.extend(table.client.fetch(table, path=path, overwrite=overwrite, **kwargs))
         return paths
 
     def __repr__(self):

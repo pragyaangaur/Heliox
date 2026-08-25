@@ -103,9 +103,7 @@ class SunPyBaseCoordinateFrame(BaseCoordinateFrame):
     @property
     def is_2d(self):
         """`True` if the frame holds only angles, with no radial coordinate."""
-        return self.has_data and isinstance(
-            self.data, UnitSphericalRepresentation
-        )
+        return self.has_data and isinstance(self.data, UnitSphericalRepresentation)
 
 
 class HeliographicStonyhurst(SunPyBaseCoordinateFrame):
@@ -353,12 +351,8 @@ class Helioprojective(SunPyBaseCoordinateFrame):
         misses = discriminant < 0
         if np.any(misses):
             if on_disc_only:
-                raise ConvertError(
-                    "Some coordinates do not intersect the solar surface."
-                )
-            distance = u.Quantity(
-                np.where(misses, np.nan, distance.to_value(u.km)), u.km
-            )
+                raise ConvertError("Some coordinates do not intersect the solar surface.")
+            distance = u.Quantity(np.where(misses, np.nan, distance.to_value(u.km)), u.km)
 
         return self.realize_frame(
             SphericalRepresentation(lon=rep.lon, lat=rep.lat, distance=distance)
@@ -391,16 +385,12 @@ class Helioprojective(SunPyBaseCoordinateFrame):
         coord = self.make_3d() if self.is_2d else self
         observer = _resolve_observer(self.observer, self.obstime)
 
-        heliocentric = coord.transform_to(
-            Heliocentric(observer=observer, obstime=self.obstime)
-        )
+        heliocentric = coord.transform_to(Heliocentric(observer=observer, obstime=self.obstime))
         radius = heliocentric.cartesian.norm()
 
         on_or_above_surface = radius >= self.rsun - tolerance
         in_front_of_the_sun = heliocentric.z > 0 * u.km
-        outside_the_shadow = (
-            np.hypot(heliocentric.x, heliocentric.y) >= self.rsun - tolerance
-        )
+        outside_the_shadow = np.hypot(heliocentric.x, heliocentric.y) >= self.rsun - tolerance
 
         with np.errstate(invalid="ignore"):
             return np.logical_and(
@@ -440,4 +430,3 @@ class HeliocentricInertial(SunPyBaseCoordinateFrame):
         ],
     }
     _wrap_angle = 180 * u.deg
-

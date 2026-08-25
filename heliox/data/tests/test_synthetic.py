@@ -24,15 +24,11 @@ def test_disc_image_shape_and_positivity():
 
 
 def test_disc_image_is_reproducible():
-    assert np.array_equal(
-        make_disc_image((64, 64), seed=7), make_disc_image((64, 64), seed=7)
-    )
+    assert np.array_equal(make_disc_image((64, 64), seed=7), make_disc_image((64, 64), seed=7))
 
 
 def test_different_seeds_give_different_images():
-    assert not np.array_equal(
-        make_disc_image((64, 64), seed=1), make_disc_image((64, 64), seed=2)
-    )
+    assert not np.array_equal(make_disc_image((64, 64), seed=1), make_disc_image((64, 64), seed=2))
 
 
 def test_euv_image_is_brighter_at_the_limb_than_at_centre():

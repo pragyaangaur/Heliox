@@ -11,7 +11,6 @@ a flat list of conditions that must all hold at once.
 """
 
 import numbers
-from abc import ABC
 
 import astropy.units as u
 
@@ -37,7 +36,7 @@ __all__ = [
 ]
 
 
-class Attr(ABC):
+class Attr:
     """
     Base class for every search attribute.
 
@@ -280,10 +279,7 @@ class Wavelength(Range):
         minimum = u.Quantity(minimum)
         maximum = minimum if maximum is None else u.Quantity(maximum)
         if not minimum.unit.is_equivalent(u.angstrom):
-            raise ValueError(
-                "A wavelength must be given in units of length, "
-                f"not {minimum.unit}."
-            )
+            raise ValueError(f"A wavelength must be given in units of length, not {minimum.unit}.")
         super().__init__(minimum, maximum.to(minimum.unit))
 
     def __repr__(self):

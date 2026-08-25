@@ -51,8 +51,7 @@ class GenericTimeSeries:
     def __init__(self, data, meta=None, units=None, **kwargs):
         if not isinstance(data, pd.DataFrame):
             raise TypeError(
-                "A time series is built on a pandas DataFrame; "
-                f"got a {type(data).__name__}."
+                f"A time series is built on a pandas DataFrame; got a {type(data).__name__}."
             )
         if not isinstance(data.index, pd.DatetimeIndex):
             raise TimeSeriesMetaValidationError(
@@ -155,9 +154,7 @@ class GenericTimeSeries:
             return self.extract(key)
         if isinstance(key, slice):
             return self.truncate(key.start, key.stop)
-        raise TypeError(
-            "Index a time series with a column name or a time slice."
-        )
+        raise TypeError("Index a time series with a column name or a time slice.")
 
     def __repr__(self):
         return textwrap.dedent(
@@ -168,7 +165,7 @@ class GenericTimeSeries:
             Start:        {self.time_range.start.utc.isot}
             End:          {self.time_range.end.utc.isot}
             Samples:      {len(self._data)}
-            Columns:      {', '.join(self.columns)}
+            Columns:      {", ".join(self.columns)}
             >"""
         )
 
@@ -186,10 +183,7 @@ class GenericTimeSeries:
         `astropy.units.Quantity`
         """
         if column not in self._data.columns:
-            raise KeyError(
-                f"There is no column called {column!r}. "
-                f"This series has {self.columns}."
-            )
+            raise KeyError(f"There is no column called {column!r}. This series has {self.columns}.")
         return u.Quantity(self._data[column].to_numpy(), self.units[column])
 
     # ------------------------------------------------------------------
@@ -209,13 +203,8 @@ class GenericTimeSeries:
         `GenericTimeSeries`
         """
         if column not in self._data.columns:
-            raise KeyError(
-                f"There is no column called {column!r}. "
-                f"This series has {self.columns}."
-            )
-        return self._new_instance(
-            data=self._data[[column]], units={column: self.units[column]}
-        )
+            raise KeyError(f"There is no column called {column!r}. This series has {self.columns}.")
+        return self._new_instance(data=self._data[[column]], units={column: self.units[column]})
 
     def add_column(self, name, values, *, unit=None, overwrite=True):
         """

@@ -16,7 +16,8 @@ The most frequently used constants are also exposed as module attributes
 
 from astropy.constants import c as _c
 
-from heliox.sun._constants import _build_table, physical_constants as _si
+from heliox.sun._constants import _build_table
+from heliox.sun._constants import physical_constants as _si
 
 __all__ = [
     "get",

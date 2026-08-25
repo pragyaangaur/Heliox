@@ -3,7 +3,6 @@ import pytest
 
 import astropy.units as u
 
-from heliox.image.resample import reshape_image_to_4d_superpixel, resample
 from heliox.image.transform import affine_transform, rotation_matrix_2d
 from heliox.util.exceptions import HelioxUserWarning
 

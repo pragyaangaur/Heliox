@@ -70,8 +70,12 @@ def test_carrington_longitude_is_nearly_preserved():
     # A feature rotating at Howard's rate drifts slowly against Carrington's
     # assumed rate, by the difference between the two.
     start = SkyCoord(
-        100 * u.deg, 0 * u.deg, 695700 * u.km,
-        frame=HeliographicCarrington, obstime=START, observer="earth",
+        100 * u.deg,
+        0 * u.deg,
+        695700 * u.km,
+        frame=HeliographicCarrington,
+        obstime=START,
+        observer="earth",
     )
     result = solar_rotate_coordinate(start, time=Time(START) + 7 * u.day)
     expected_drift = (14.326 - 14.1844) * 7
@@ -80,8 +84,11 @@ def test_carrington_longitude_is_nearly_preserved():
 
 def test_helioprojective_input_gives_helioprojective_output():
     start = SkyCoord(
-        200 * u.arcsec, 100 * u.arcsec, frame=Helioprojective,
-        obstime=START, observer="earth",
+        200 * u.arcsec,
+        100 * u.arcsec,
+        frame=Helioprojective,
+        obstime=START,
+        observer="earth",
     )
     result = solar_rotate_coordinate(start, time=Time(START) + 1 * u.day)
     assert isinstance(result.frame, Helioprojective)
@@ -90,8 +97,11 @@ def test_helioprojective_input_gives_helioprojective_output():
 
 def test_an_observer_supplies_the_time():
     start = SkyCoord(
-        200 * u.arcsec, 100 * u.arcsec, frame=Helioprojective,
-        obstime=START, observer="earth",
+        200 * u.arcsec,
+        100 * u.arcsec,
+        frame=Helioprojective,
+        obstime=START,
+        observer="earth",
     )
     observer = get_earth(Time(START) + 1 * u.day)
     result = solar_rotate_coordinate(start, observer=observer)
@@ -111,8 +121,10 @@ def test_rigid_model_ignores_latitude():
 
 def test_arrays_of_coordinates():
     start = SkyCoord(
-        [0, 10, 20] * u.deg, [0, 20, 40] * u.deg,
-        frame=HeliographicStonyhurst, obstime=START,
+        [0, 10, 20] * u.deg,
+        [0, 20, 40] * u.deg,
+        frame=HeliographicStonyhurst,
+        obstime=START,
     )
     result = solar_rotate_coordinate(start, time=Time(START) + 1 * u.day)
     assert result.shape == (3,)

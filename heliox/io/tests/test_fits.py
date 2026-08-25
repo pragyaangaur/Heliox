@@ -29,9 +29,7 @@ def test_read_a_specific_hdu():
 
 def test_read_skips_extensions_without_data(tmp_path):
     path = tmp_path / "two.fits"
-    fits.HDUList(
-        [fits.PrimaryHDU(), fits.ImageHDU(data=np.zeros((4, 4)))]
-    ).writeto(path)
+    fits.HDUList([fits.PrimaryHDU(), fits.ImageHDU(data=np.zeros((4, 4)))]).writeto(path)
     assert len(read(path)) == 1
 
 

@@ -190,7 +190,7 @@ class CompositeMap:
             axes = figure.add_subplot(projection=self._maps[0].wcs)
 
         artists = []
-        for a_map, settings in zip(self._maps, self._settings):
+        for a_map, settings in zip(self._maps, self._settings, strict=True):
             if settings["levels"] is not None:
                 artists.append(
                     a_map.draw_contours(

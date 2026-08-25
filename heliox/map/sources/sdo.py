@@ -130,4 +130,3 @@ class HMIMap(GenericMap):
     def is_datasource_for(cls, data, header, **kwargs):
         """Recognise an HMI image from its ``INSTRUME`` keyword."""
         return str(header.get("instrume", "")).upper().startswith("HMI")
-

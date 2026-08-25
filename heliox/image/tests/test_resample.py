@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from heliox.image.resample import reshape_image_to_4d_superpixel, resample
+from heliox.image.resample import resample, reshape_image_to_4d_superpixel
 
 
 @pytest.fixture

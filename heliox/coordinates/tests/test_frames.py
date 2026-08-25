@@ -28,9 +28,7 @@ def test_carrington_wraps_longitude_to_0_360():
 
 def test_two_dimensional_frames_report_is_2d():
     assert HeliographicStonyhurst(0 * u.deg, 0 * u.deg, obstime=OBSTIME).is_2d
-    assert not HeliographicStonyhurst(
-        0 * u.deg, 0 * u.deg, 1 * u.AU, obstime=OBSTIME
-    ).is_2d
+    assert not HeliographicStonyhurst(0 * u.deg, 0 * u.deg, 1 * u.AU, obstime=OBSTIME).is_2d
 
 
 def test_make_3d_puts_the_point_on_the_solar_surface():
@@ -45,9 +43,7 @@ def test_make_3d_is_a_no_op_when_already_3d():
 
 
 def test_heliocentric_is_never_2d():
-    coord = Heliocentric(
-        1 * u.km, 2 * u.km, 3 * u.km, obstime=OBSTIME, observer="earth"
-    )
+    coord = Heliocentric(1 * u.km, 2 * u.km, 3 * u.km, obstime=OBSTIME, observer="earth")
     assert not coord.is_2d
 
 
@@ -143,9 +139,7 @@ def test_is_visible_hides_the_far_side():
     far_side = SkyCoord(
         150 * u.deg, 0 * u.deg, frame=HeliographicStonyhurst, obstime=OBSTIME
     ).make_3d()
-    projected = far_side.transform_to(
-        Helioprojective(obstime=OBSTIME, observer="earth")
-    )
+    projected = far_side.transform_to(Helioprojective(obstime=OBSTIME, observer="earth"))
     assert not projected.is_visible()
 
 

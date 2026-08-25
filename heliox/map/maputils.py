@@ -55,9 +55,7 @@ def all_pixel_indices_from_map(smap):
     >>> all_pixel_indices_from_map(aia).shape
     (2, 512, 512)
     """
-    return np.meshgrid(
-        np.arange(smap.data.shape[1]), np.arange(smap.data.shape[0])
-    ) * u.pix
+    return np.meshgrid(np.arange(smap.data.shape[1]), np.arange(smap.data.shape[0])) * u.pix
 
 
 def all_coordinates_from_map(smap):
@@ -388,4 +386,3 @@ def sample_at_coords(smap, coordinates):
     rows = np.rint(y.to_value(u.pix)).astype(int)
     values = smap.data[rows, columns]
     return u.Quantity(values, smap.unit) if smap.unit else values
-

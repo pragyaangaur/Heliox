@@ -126,9 +126,7 @@ class MapFactory:
         path = Path(path)
 
         if path.is_dir():
-            files = sorted(
-                str(candidate) for candidate in path.iterdir() if candidate.is_file()
-            )
+            files = sorted(str(candidate) for candidate in path.iterdir() if candidate.is_file())
         elif any(character in str(path) for character in "*?[") and not path.exists():
             files = sorted(glob.glob(str(path)))
             if not files:
@@ -145,9 +143,7 @@ class MapFactory:
                     continue
                 pairs.append((np.asarray(data), header))
         if not pairs:
-            raise NoMapsInFileError(
-                f"No two-dimensional image data was found in {path}."
-            )
+            raise NoMapsInFileError(f"No two-dimensional image data was found in {path}.")
         return pairs
 
     # ------------------------------------------------------------------

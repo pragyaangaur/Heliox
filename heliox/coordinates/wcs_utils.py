@@ -61,9 +61,7 @@ def _observer_from_wcs(wcs):
     lon = getattr(aux, "hgln_obs", None)
     lat = getattr(aux, "hglt_obs", None)
     if lon is not None and lat is not None and dsun is not None:
-        return HeliographicStonyhurst(
-            lon * u.deg, lat * u.deg, dsun * u.m, obstime=obstime
-        )
+        return HeliographicStonyhurst(lon * u.deg, lat * u.deg, dsun * u.m, obstime=obstime)
 
     crln = getattr(aux, "crln_obs", None)
     if crln is not None and lat is not None and dsun is not None:

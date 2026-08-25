@@ -103,9 +103,7 @@ def test_helioprojective_round_trip_for_a_surface_point():
 # Geometry of the projection
 # ---------------------------------------------------------------------------
 def test_disc_centre_maps_to_the_sub_earth_point():
-    centre = hpc(0 * u.arcsec, 0 * u.arcsec).transform_to(
-        HeliographicStonyhurst(obstime=OBSTIME)
-    )
+    centre = hpc(0 * u.arcsec, 0 * u.arcsec).transform_to(HeliographicStonyhurst(obstime=OBSTIME))
     assert centre.lon.to_value(u.deg) == pytest.approx(0, abs=1e-6)
     assert centre.lat.to_value(u.deg) == pytest.approx(
         get_earth(OBSTIME).lat.to_value(u.deg), abs=1e-6
@@ -114,9 +112,7 @@ def test_disc_centre_maps_to_the_sub_earth_point():
 
 def test_a_point_at_the_limb_is_one_angular_radius_out():
     limb = hgs(90 * u.deg, 0 * u.deg).make_3d()
-    projected = SkyCoord(limb).transform_to(
-        Helioprojective(obstime=OBSTIME, observer="earth")
-    )
+    projected = SkyCoord(limb).transform_to(Helioprojective(obstime=OBSTIME, observer="earth"))
     angular_radius = Helioprojective(obstime=OBSTIME, observer="earth").angular_radius
     separation = np.hypot(projected.Tx.to_value(u.arcsec), projected.Ty.to_value(u.arcsec))
     # The visible limb is very slightly inside the geometric one, by the ratio
@@ -153,9 +149,7 @@ def test_two_dimensional_helioprojective_lands_on_the_surface():
     surface = hpc(500 * u.arcsec, 0 * u.arcsec).transform_to(
         HeliographicStonyhurst(obstime=OBSTIME)
     )
-    assert surface.radius.to_value(u.km) == pytest.approx(
-        constants.radius.to_value(u.km), rel=1e-9
-    )
+    assert surface.radius.to_value(u.km) == pytest.approx(constants.radius.to_value(u.km), rel=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -175,9 +169,7 @@ def test_observing_from_mars_shifts_the_apparent_position():
 def test_helioprojective_to_helioprojective_between_observers():
     mars = get_body_heliographic_stonyhurst("mars", OBSTIME)
     from_earth = hpc(200 * u.arcsec, 100 * u.arcsec)
-    from_mars = from_earth.transform_to(
-        Helioprojective(obstime=OBSTIME, observer=mars)
-    )
+    from_mars = from_earth.transform_to(Helioprojective(obstime=OBSTIME, observer=mars))
     # Going back again must recover the original angles.
     back = from_mars.transform_to(Helioprojective(obstime=OBSTIME, observer="earth"))
     assert back.Tx.to_value(u.arcsec) == pytest.approx(200, abs=1e-6)

@@ -98,9 +98,7 @@ class GenericMap:
         new._data = self._data if data is _NOT_SET else np.asarray(data)
         new._meta = MetaDict(self._meta) if meta is _NOT_SET else MetaDict(meta)
         new.plot_settings = (
-            copy.deepcopy(self.plot_settings)
-            if plot_settings is _NOT_SET
-            else dict(plot_settings)
+            copy.deepcopy(self.plot_settings) if plot_settings is _NOT_SET else dict(plot_settings)
         )
         # An explicitly chosen nickname is part of how the user wants the map
         # labelled, so carry it across.
@@ -390,11 +388,9 @@ class GenericMap:
         """The observer's Carrington longitude, the ``L0`` angle."""
         if "crln_obs" in self._meta:
             return float(self._meta["crln_obs"]) * u.deg
-        return (
-            self.observer_coordinate.transform_to(
-                HeliographicCarrington(obstime=self.date, observer="earth")
-            ).lon.to(u.deg)
-        )
+        return self.observer_coordinate.transform_to(
+            HeliographicCarrington(obstime=self.date, observer="earth")
+        ).lon.to(u.deg)
 
     @property
     def observer_coordinate(self):
@@ -433,9 +429,7 @@ class GenericMap:
         FITS counts pixels from one and heliox counts from zero, so this is
         ``CRPIX - 1``.
         """
-        return u.Quantity(
-            [float(self._meta["crpix1"]) - 1, float(self._meta["crpix2"]) - 1], u.pix
-        )
+        return u.Quantity([float(self._meta["crpix1"]) - 1, float(self._meta["crpix2"]) - 1], u.pix)
 
     @property
     def reference_coordinate(self):
@@ -537,9 +531,7 @@ class GenericMap:
         if ctype.startswith("HGLN"):
             return HeliographicStonyhurst(obstime=self.date)
         if ctype.startswith("CRLN"):
-            return HeliographicCarrington(
-                obstime=self.date, observer=self.observer_coordinate
-            )
+            return HeliographicCarrington(obstime=self.date, observer=self.observer_coordinate)
         raise MapMetaValidationError(
             f"heliox does not know what coordinate frame {ctype!r} describes."
         )
@@ -662,9 +654,7 @@ class GenericMap:
                 bottom_left[1] + u.Quantity(height, u.pix).to_value(u.pix),
             )
         else:
-            raise ValueError(
-                "Give either a top right corner, or both a width and a height."
-            )
+            raise ValueError("Give either a top right corner, or both a width and a height.")
         return tuple(bottom_left), tuple(top_right)
 
     def submap(self, bottom_left, *, top_right=None, width=None, height=None):
@@ -723,9 +713,7 @@ class GenericMap:
         upper = min(upper, self._data.shape[0])
 
         if right <= left or upper <= lower:
-            raise ValueError(
-                "The requested region does not overlap the map."
-            )
+            raise ValueError("The requested region does not overlap the map.")
 
         data = self._data[lower:upper, left:right]
         meta = MetaDict(self._meta)
@@ -850,12 +838,8 @@ class GenericMap:
         meta["cdelt2"] = float(self._meta["cdelt2"]) * block_y
         # The centre of the first output pixel sits at input pixel
         # offset + (block + 1) / 2 in FITS one-based coordinates.
-        meta["crpix1"] = (
-            float(self._meta["crpix1"]) - offset_x - (block_x + 1) / 2
-        ) / block_x + 1
-        meta["crpix2"] = (
-            float(self._meta["crpix2"]) - offset_y - (block_y + 1) / 2
-        ) / block_y + 1
+        meta["crpix1"] = (float(self._meta["crpix1"]) - offset_x - (block_x + 1) / 2) / block_x + 1
+        meta["crpix2"] = (float(self._meta["crpix2"]) - offset_y - (block_y + 1) / 2) / block_y + 1
         meta["naxis1"] = data.shape[1]
         meta["naxis2"] = data.shape[0]
         return self._new_instance(data=data, meta=meta)
@@ -999,8 +983,7 @@ class GenericMap:
         region. Clipping to a percentile range and applying a square root
         stretch brings the faint structure out.
         """
-        from astropy.visualization import ImageNormalize, SqrtStretch
-        from astropy.visualization import AsymmetricPercentileInterval
+        from astropy.visualization import AsymmetricPercentileInterval, ImageNormalize, SqrtStretch
 
         finite = self._data[np.isfinite(self._data)]
         if finite.size == 0:
@@ -1049,6 +1032,7 @@ class GenericMap:
         be positioned in world coordinates with ``axes.plot_coord``.
         """
         import matplotlib.pyplot as plt
+
         from astropy.visualization import ImageNormalize
         from astropy.visualization.wcsaxes import WCSAxes
 
@@ -1166,9 +1150,7 @@ class GenericMap:
         from heliox.visualization import drawing
 
         axes = axes if axes is not None else self._current_axes()
-        return drawing.limb(
-            axes, self.observer_coordinate, rsun=self.rsun_meters, **kwargs
-        )
+        return drawing.limb(axes, self.observer_coordinate, rsun=self.rsun_meters, **kwargs)
 
     def draw_grid(self, axes=None, *, grid_spacing=15 * u.deg, system="stonyhurst", **kwargs):
         """
@@ -1260,6 +1242,7 @@ class GenericMap:
     def _current_axes():
         """Return the current axes, complaining if they are not world-aware."""
         import matplotlib.pyplot as plt
+
         from astropy.visualization.wcsaxes import WCSAxes
 
         axes = plt.gca()
@@ -1313,9 +1296,9 @@ class GenericMap:
     def __eq__(self, other):
         if not isinstance(other, GenericMap):
             return NotImplemented
-        return np.array_equal(self._data, other._data, equal_nan=True) and dict(
-            self._meta
-        ) == dict(other._meta)
+        return np.array_equal(self._data, other._data, equal_nan=True) and dict(self._meta) == dict(
+            other._meta
+        )
 
     def __hash__(self):
         return id(self)

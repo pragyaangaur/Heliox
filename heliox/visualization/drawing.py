@@ -133,9 +133,7 @@ def grid(
     # Meridians: constant longitude, latitude running pole to pole.
     latitudes = np.linspace(-90, 90, resolution) * u.deg
     for longitude in np.arange(-180, 180, step):
-        points = SkyCoord(
-            np.full(resolution, longitude) * u.deg, latitudes, frame=frame
-        )
+        points = SkyCoord(np.full(resolution, longitude) * u.deg, latitudes, frame=frame)
         lines.extend(axes.plot_coord(points, **kwargs))
 
     # Parallels: constant latitude, longitude going all the way round.
@@ -148,9 +146,7 @@ def grid(
         for longitude in np.arange(-180, 180, step):
             label_point = SkyCoord(longitude * u.deg, 0 * u.deg, frame=frame)
             try:
-                axes.plot_coord(
-                    label_point, marker="", linestyle="none"
-                )
+                axes.plot_coord(label_point, marker="", linestyle="none")
             except Exception:  # pragma: no cover - annotation is best effort
                 pass
 
@@ -235,6 +231,4 @@ def extent(axes, a_map, **kwargs):
     -------
     `list` of `~matplotlib.lines.Line2D`
     """
-    return quadrangle(
-        axes, a_map.bottom_left_coord, top_right=a_map.top_right_coord, **kwargs
-    )
+    return quadrangle(axes, a_map.bottom_left_coord, top_right=a_map.top_right_coord, **kwargs)

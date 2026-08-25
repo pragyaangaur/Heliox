@@ -67,9 +67,7 @@ def test_from_an_existing_series():
 
 def test_from_a_glob(tmp_path):
     for index in range(2):
-        (tmp_path / f"data{index}.csv").write_text(
-            open(NOAA_INDICES_TIMESERIES).read()
-        )
+        (tmp_path / f"data{index}.csv").write_text(open(NOAA_INDICES_TIMESERIES).read())
     assert len(TimeSeries(str(tmp_path / "*.csv"))) == 2
 
 

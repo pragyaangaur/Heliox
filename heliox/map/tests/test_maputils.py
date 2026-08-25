@@ -11,10 +11,10 @@ from heliox.map.maputils import (
     all_coordinates_from_map,
     all_corner_coords_from_map,
     all_pixel_indices_from_map,
-    coordinate_is_on_solar_disk,
     contains_coordinate,
     contains_full_disk,
     contains_limb,
+    coordinate_is_on_solar_disk,
     is_all_off_disk,
     is_all_on_disk,
     map_edges,
@@ -147,9 +147,7 @@ def test_contains_coordinate(aia, on_disk_map):
 
 
 def test_contains_coordinate_is_vectorised(aia):
-    coordinates = SkyCoord(
-        [0, 5000] * u.arcsec, [0, 0] * u.arcsec, frame=aia.coordinate_frame
-    )
+    coordinates = SkyCoord([0, 5000] * u.arcsec, [0, 0] * u.arcsec, frame=aia.coordinate_frame)
     result = contains_coordinate(aia, coordinates)
     assert result.tolist() == [True, False]
 
@@ -178,9 +176,7 @@ def test_sample_at_coords(aia):
 
 
 def test_sample_at_coords_is_vectorised(aia):
-    coordinates = SkyCoord(
-        [0, 100] * u.arcsec, [0, 100] * u.arcsec, frame=aia.coordinate_frame
-    )
+    coordinates = SkyCoord([0, 100] * u.arcsec, [0, 100] * u.arcsec, frame=aia.coordinate_frame)
     assert sample_at_coords(aia, coordinates).shape == (2,)
 
 

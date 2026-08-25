@@ -11,7 +11,6 @@ in the same way the SolarSoft IDL colour tables are defined.
 """
 
 import numpy as np
-
 from matplotlib import colormaps
 from matplotlib.colors import LinearSegmentedColormap
 
@@ -36,9 +35,9 @@ def _make_cmap(name, red, green, blue):
     """Build a colormap from three 256-element channel curves."""
     x = np.linspace(0.0, 1.0, 256)
     segments = {
-        "red": [(xi, ri, ri) for xi, ri in zip(x, red)],
-        "green": [(xi, gi, gi) for xi, gi in zip(x, green)],
-        "blue": [(xi, bi, bi) for xi, bi in zip(x, blue)],
+        "red": [(xi, ri, ri) for xi, ri in zip(x, red, strict=True)],
+        "green": [(xi, gi, gi) for xi, gi in zip(x, green, strict=True)],
+        "blue": [(xi, bi, bi) for xi, bi in zip(x, blue, strict=True)],
     }
     return LinearSegmentedColormap(name, segments, N=256)
 
@@ -91,15 +90,10 @@ def aia_color_table(wavelength):
         raise ValueError("The wavelength must be a quantity in angstroms.") from exc
 
     if angstrom not in _AIA_CHANNELS:
-        raise ValueError(
-            f"{angstrom} is not an AIA channel. "
-            f"Choose from {sorted(_AIA_CHANNELS)}."
-        )
+        raise ValueError(f"{angstrom} is not an AIA channel. Choose from {sorted(_AIA_CHANNELS)}.")
 
     r, g, b = _AIA_CHANNELS[angstrom]
-    return _make_cmap(
-        f"sdoaia{angstrom}", _gamma_table(r), _gamma_table(g), _gamma_table(b)
-    )
+    return _make_cmap(f"sdoaia{angstrom}", _gamma_table(r), _gamma_table(g), _gamma_table(b))
 
 
 def hmi_mag_color_table():
@@ -129,7 +123,6 @@ def _bipolar_table():
 
 def _soho_lasco_table(detector):
     """The blue-white tables used by the LASCO coronagraphs."""
-    x = np.linspace(0.0, 1.0, 256)
     if detector.upper() == "C2":
         return _make_cmap("soholasco2", _gamma_table(1.4), _gamma_table(1.0), _gamma_table(0.7))
     return _make_cmap("soholasco3", _gamma_table(0.8), _gamma_table(1.0), _gamma_table(1.4))

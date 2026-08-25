@@ -20,13 +20,11 @@ frame that needs neither an observer nor a choice of rotating grid.
 
 import numpy as np
 
-import astropy.units as u
 from astropy.coordinates import HCRS, ConvertError, frame_transform_graph
 from astropy.coordinates.matrix_utilities import matrix_transpose
 from astropy.coordinates.representation import (
     CartesianRepresentation,
     SphericalRepresentation,
-    UnitSphericalRepresentation,
 )
 from astropy.coordinates.transformations import (
     DynamicMatrixTransform,
@@ -186,9 +184,7 @@ def hci_to_hgs(hci_frame, hgs_frame):
     ) @ matrix_transpose(inertial_matrix(obstime))
 
 
-@frame_transform_graph.transform(
-    DynamicMatrixTransform, HeliocentricInertial, HeliocentricInertial
-)
+@frame_transform_graph.transform(DynamicMatrixTransform, HeliocentricInertial, HeliocentricInertial)
 def hci_to_hci(from_frame, to_frame):
     """The inertial frame does not rotate, so this is the identity."""
     return np.eye(3)
@@ -258,9 +254,7 @@ def hcc_to_hcc(from_frame, to_frame):
     """Re-reference a heliocentric coordinate to a different observer."""
     from_observer = _require_observer(from_frame, "Heliocentric")
     to_observer = _require_observer(to_frame, "Heliocentric")
-    return _heliocentric_matrix(to_observer) @ matrix_transpose(
-        _heliocentric_matrix(from_observer)
-    )
+    return _heliocentric_matrix(to_observer) @ matrix_transpose(_heliocentric_matrix(from_observer))
 
 
 # ---------------------------------------------------------------------------

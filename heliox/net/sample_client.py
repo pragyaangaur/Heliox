@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 import astropy.units as u
+
 from heliox.net.attrs import (
     Detector,
     Instrument,
@@ -226,11 +227,7 @@ class SampleDataClient(BaseClient):
                 if not np.isfinite(value):
                     return False
                 measured = value * u.angstrom
-                if not (
-                    attribute.start.to(u.angstrom)
-                    <= measured
-                    <= attribute.end.to(u.angstrom)
-                ):
+                if not (attribute.start.to(u.angstrom) <= measured <= attribute.end.to(u.angstrom)):
                     return False
             elif isinstance(attribute, Sample):
                 continue
@@ -244,12 +241,8 @@ class SampleDataClient(BaseClient):
         """Build a result table from catalogue entries."""
         table = QueryResponseTable(
             {
-                "Start Time": parse_time([entry["start"] for entry in entries])
-                if entries
-                else [],
-                "End Time": parse_time([entry["end"] for entry in entries])
-                if entries
-                else [],
+                "Start Time": parse_time([entry["start"] for entry in entries]) if entries else [],
+                "End Time": parse_time([entry["end"] for entry in entries]) if entries else [],
                 "Instrument": [entry["instrument"] for entry in entries],
                 "Source": [entry["source"] for entry in entries],
                 "Detector": [entry["detector"] for entry in entries],
@@ -297,8 +290,7 @@ class SampleDataClient(BaseClient):
         entries = query_results.meta.get("entries")
         if entries is None:
             raise ValueError(
-                "These results did not come from the sample client, so it "
-                "cannot fetch them."
+                "These results did not come from the sample client, so it cannot fetch them."
             )
 
         paths = []
@@ -338,4 +330,3 @@ def _thin(entries, cadence):
             kept.append(entry)
             last = start
     return kept
-

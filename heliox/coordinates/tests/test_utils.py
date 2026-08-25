@@ -41,8 +41,12 @@ def test_arc_over_a_quarter_of_the_sun():
     centre = SkyCoord(0 * u.deg, 0 * u.deg, frame=HeliographicStonyhurst, obstime=OBSTIME)
     limb = SkyCoord(90 * u.deg, 0 * u.deg, frame=HeliographicStonyhurst, obstime=OBSTIME)
     arc = GreatArc(
-        SkyCoord(centre.frame.make_3d()).transform_to(Helioprojective(**{k: v for k, v in FRAME.items() if k != "frame"})),
-        SkyCoord(limb.frame.make_3d()).transform_to(Helioprojective(**{k: v for k, v in FRAME.items() if k != "frame"})),
+        SkyCoord(centre.frame.make_3d()).transform_to(
+            Helioprojective(**{k: v for k, v in FRAME.items() if k != "frame"})
+        ),
+        SkyCoord(limb.frame.make_3d()).transform_to(
+            Helioprojective(**{k: v for k, v in FRAME.items() if k != "frame"})
+        ),
     )
     assert arc.angle.to_value(u.deg) == pytest.approx(90, abs=0.01)
     quarter_circumference = (np.pi / 2) * constants.radius
@@ -54,9 +58,7 @@ def test_arc_over_a_quarter_of_the_sun():
 def test_arc_stays_on_the_solar_surface():
     a = SkyCoord(0 * u.arcsec, 0 * u.arcsec, **FRAME)
     b = SkyCoord(700 * u.arcsec, 200 * u.arcsec, **FRAME)
-    on_sun = GreatArc(a, b).coordinates().transform_to(
-        HeliographicStonyhurst(obstime=OBSTIME)
-    )
+    on_sun = GreatArc(a, b).coordinates().transform_to(HeliographicStonyhurst(obstime=OBSTIME))
     radii = on_sun.radius.to_value(u.km)
     assert np.allclose(radii, constants.radius.to_value(u.km), rtol=1e-6)
 
@@ -66,9 +68,7 @@ def test_arc_with_explicit_sampling_fractions():
     b = SkyCoord(500 * u.arcsec, 0 * u.arcsec, **FRAME)
     arc = GreatArc(a, b, points=[0.0, 0.5, 1.0])
     assert arc.coordinates().shape == (3,)
-    assert arc.inner_angles[1].to_value(u.deg) == pytest.approx(
-        arc.angle.to_value(u.deg) / 2
-    )
+    assert arc.inner_angles[1].to_value(u.deg) == pytest.approx(arc.angle.to_value(u.deg) / 2)
 
 
 def test_arc_rejects_fractions_outside_the_unit_interval():
@@ -109,9 +109,7 @@ def test_limb_is_at_the_solar_radius():
 def test_limb_is_slightly_inside_the_geometric_ninety_degrees():
     limb = get_limb_coordinates(get_earth(OBSTIME), resolution=8)
     projected = limb.transform_to(Helioprojective(obstime=OBSTIME, observer="earth"))
-    separations = np.hypot(
-        projected.Tx.to_value(u.arcsec), projected.Ty.to_value(u.arcsec)
-    )
+    separations = np.hypot(projected.Tx.to_value(u.arcsec), projected.Ty.to_value(u.arcsec))
     angular_radius = Helioprojective(obstime=OBSTIME, observer="earth").angular_radius
     assert np.allclose(separations, angular_radius.to_value(u.arcsec), rtol=1e-6)
 

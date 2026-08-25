@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+
 import astropy.units as u
 from astropy.io import fits
 
@@ -36,9 +37,7 @@ __all__ = [
 ]
 
 _SAMPLES = {
-    "AIA_171_IMAGE": dict(
-        kind="aia", shape=(512, 512), obstime="2013-10-28T12:00:00", seed=171
-    ),
+    "AIA_171_IMAGE": dict(kind="aia", shape=(512, 512), obstime="2013-10-28T12:00:00", seed=171),
     "AIA_193_IMAGE": dict(
         kind="aia",
         shape=(512, 512),
@@ -50,9 +49,7 @@ _SAMPLES = {
     "HMI_CONTINUUM_IMAGE": dict(
         kind="continuum", shape=(512, 512), obstime="2013-10-28T12:00:00", seed=62
     ),
-    "LASCO_C2_IMAGE": dict(
-        kind="lasco", shape=(384, 384), obstime="2013-10-28T12:24:00", seed=2
-    ),
+    "LASCO_C2_IMAGE": dict(kind="lasco", shape=(384, 384), obstime="2013-10-28T12:24:00", seed=2),
 }
 
 # A short series of AIA images, for exercising map sequences and animations.
@@ -110,8 +107,7 @@ def get_sample_file(name):
         return _timeseries_file(name)
     if name not in _SAMPLES:
         raise KeyError(
-            f"Unknown sample {name!r}. "
-            f"Choose from {sorted(list(_SAMPLES) + list(_TIMESERIES))}."
+            f"Unknown sample {name!r}. Choose from {sorted(list(_SAMPLES) + list(_TIMESERIES))}."
         )
 
     path = cache_directory() / f"{name.lower()}.fits"
@@ -150,11 +146,15 @@ def _timeseries_file(name):
                 # The unit belongs on the column, so that astropy writes the
                 # matching TUNITn keyword for us.
                 fits.Column(
-                    name="xrsa", format="E", unit="W/m**2",
+                    name="xrsa",
+                    format="E",
+                    unit="W/m**2",
                     array=frame["xrsa"].to_numpy(),
                 ),
                 fits.Column(
-                    name="xrsb", format="E", unit="W/m**2",
+                    name="xrsb",
+                    format="E",
+                    unit="W/m**2",
                     array=frame["xrsb"].to_numpy(),
                 ),
             ],
@@ -196,7 +196,7 @@ def _sequence_files():
     base = make_hdu("aia", (256, 256), obstime=_SEQUENCE_TIMES[0], seed=171)
     rng = np.random.default_rng(1710)
 
-    for index, (path, obstime) in enumerate(zip(paths, _SEQUENCE_TIMES)):
+    for index, (path, obstime) in enumerate(zip(paths, _SEQUENCE_TIMES, strict=True)):
         # About 13 degrees of rotation a day works out at a fraction of a pixel
         # per ten minutes at this scale, so exaggerate it to something visible.
         data = _shift(base.data.astype(float), (0.0, 1.5 * index), order=1, mode="nearest")
@@ -204,9 +204,9 @@ def _sequence_files():
 
         header = base.header.copy()
         header["DATE-OBS"] = obstime
-        fits.PrimaryHDU(
-            data=np.clip(data, 0.0, None).astype(np.float32), header=header
-        ).writeto(path, overwrite=True)
+        fits.PrimaryHDU(data=np.clip(data, 0.0, None).astype(np.float32), header=header).writeto(
+            path, overwrite=True
+        )
 
     return [str(path) for path in paths]
 

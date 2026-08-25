@@ -301,9 +301,11 @@ class TimeRange:
         >>> [d.isot[:10] for d in TimeRange('2013-10-28 20:00', '2013-10-30 03:00').get_dates()]
         ['2013-10-28', '2013-10-29', '2013-10-30']
         """
-        n_days = int(np.floor((self.end.mjd - np.floor(self.start.mjd)))) + 1
+        n_days = int(np.floor(self.end.mjd - np.floor(self.start.mjd))) + 1
         first = Time(np.floor(self.start.mjd), format="mjd", scale=self.start.scale)
-        return [Time(first.mjd + offset, format="mjd", scale=first.scale) for offset in range(n_days)]
+        return [
+            Time(first.mjd + offset, format="mjd", scale=first.scale) for offset in range(n_days)
+        ]
 
     def to_timedelta(self):
         """Return the duration as a `datetime.timedelta`."""

@@ -5,7 +5,6 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 
-import heliox.map
 from heliox.coordinates import Helioprojective
 from heliox.data.sample import (
     AIA_171_IMAGE,
@@ -22,8 +21,11 @@ from heliox.util.exceptions import NoMapsInFileError
 def array_and_header():
     data = np.zeros((32, 32))
     centre = SkyCoord(
-        0 * u.arcsec, 0 * u.arcsec, frame=Helioprojective,
-        obstime="2013-10-28", observer="earth",
+        0 * u.arcsec,
+        0 * u.arcsec,
+        frame=Helioprojective,
+        obstime="2013-10-28",
+        observer="earth",
     )
     return data, make_fitswcs_header(data, centre)
 

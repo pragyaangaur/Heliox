@@ -4,7 +4,8 @@ import astropy.units as u
 
 import heliox.map
 import heliox.timeseries
-from heliox.net import Fido, attrs as a
+from heliox.net import Fido
+from heliox.net import attrs as a
 from heliox.net.base_client import BaseClient, QueryResponseTable, UnifiedResponse
 from heliox.net.sample_client import SampleDataClient
 
@@ -24,15 +25,11 @@ def test_search_by_time_and_instrument(client):
 
 
 def test_instrument_matching_is_case_insensitive(client):
-    assert len(
-        client.search(a.Time("2013-10-28", "2013-10-29"), a.Instrument("aia"))
-    ) == 6
+    assert len(client.search(a.Time("2013-10-28", "2013-10-29"), a.Instrument("aia"))) == 6
 
 
 def test_search_by_wavelength(client):
-    results = client.search(
-        a.Time("2013-10-28", "2013-10-29"), a.Wavelength(171 * u.angstrom)
-    )
+    results = client.search(a.Time("2013-10-28", "2013-10-29"), a.Wavelength(171 * u.angstrom))
     assert len(results) == 5
     assert all(value == 171 for value in results["Wavelength"].value)
 
@@ -46,9 +43,7 @@ def test_search_by_wavelength_range(client):
 
 
 def test_search_by_physobs(client):
-    results = client.search(
-        a.Time("2013-10-28", "2013-10-29"), a.Physobs("LOS_magnetic_field")
-    )
+    results = client.search(a.Time("2013-10-28", "2013-10-29"), a.Physobs("LOS_magnetic_field"))
     assert len(results) == 1
     assert results["Instrument"][0] == "HMI"
 
@@ -69,9 +64,7 @@ def test_search_outside_the_catalogue_finds_nothing(client):
 
 def test_time_series_matches_an_overlapping_window(client):
     # The GOES series covers a whole day, so a one hour query inside it matches.
-    results = client.search(
-        a.Time("2013-10-28T03:00", "2013-10-28T04:00"), a.Instrument("XRS")
-    )
+    results = client.search(a.Time("2013-10-28T03:00", "2013-10-28T04:00"), a.Instrument("XRS"))
     assert len(results) == 1
 
 
@@ -121,9 +114,7 @@ def test_fetch_returns_cached_paths(client):
 
 
 def test_fetch_copies_into_a_directory(client, tmp_path):
-    results = client.search(
-        a.Time("2013-10-28", "2013-10-29"), a.Physobs("LOS_magnetic_field")
-    )
+    results = client.search(a.Time("2013-10-28", "2013-10-29"), a.Physobs("LOS_magnetic_field"))
     paths = client.fetch(results, path=tmp_path)
     assert len(paths) == 1
     assert str(tmp_path) in paths[0]
@@ -131,9 +122,7 @@ def test_fetch_copies_into_a_directory(client, tmp_path):
 
 
 def test_fetch_does_not_overwrite_by_default(client, tmp_path):
-    results = client.search(
-        a.Time("2013-10-28", "2013-10-29"), a.Physobs("LOS_magnetic_field")
-    )
+    results = client.search(a.Time("2013-10-28", "2013-10-29"), a.Physobs("LOS_magnetic_field"))
     first = client.fetch(results, path=tmp_path)[0]
     with open(first, "ab") as stream:
         stream.write(b"")
@@ -282,9 +271,7 @@ def test_registering_without_a_predicate():
 # ---------------------------------------------------------------------------
 def test_search_fetch_and_load_a_map():
     results = Fido.search(
-        a.Time("2013-10-28", "2013-10-29")
-        & a.Instrument("AIA")
-        & a.Wavelength(193 * u.angstrom)
+        a.Time("2013-10-28", "2013-10-29") & a.Instrument("AIA") & a.Wavelength(193 * u.angstrom)
     )
     sequence = heliox.map.Map(Fido.fetch(results), sequence=True)
     assert len(sequence) == 1

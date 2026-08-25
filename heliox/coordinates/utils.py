@@ -160,16 +160,12 @@ class GreatArc:
         )
         points = points * u.km + self._center_xyz
 
-        heliocentric = SkyCoord(
-            points[:, 0], points[:, 1], points[:, 2], frame=self._heliocentric
-        )
+        heliocentric = SkyCoord(points[:, 0], points[:, 1], points[:, 2], frame=self._heliocentric)
         return heliocentric.transform_to(self._frame)
 
     def distances(self):
         """The distance along the arc to each sampled point."""
-        return (self._radius * self.inner_angles).to(
-            u.km, equivalencies=u.dimensionless_angles()
-        )
+        return (self._radius * self.inner_angles).to(u.km, equivalencies=u.dimensionless_angles())
 
 
 def get_limb_coordinates(observer, rsun=None, resolution=1000):
@@ -320,4 +316,3 @@ def solar_angle_equivalency(observer):
         return np.arctan(distance_in_km / distance.to_value(u.km))
 
     return [(u.radian, u.km, to_distance, to_angle)]
-

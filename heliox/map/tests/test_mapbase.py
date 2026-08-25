@@ -24,8 +24,11 @@ def simple_map():
     data = np.zeros((64, 64))
     data[40, 20] = 100.0
     centre = SkyCoord(
-        0 * u.arcsec, 0 * u.arcsec, frame=Helioprojective,
-        obstime="2013-10-28T12:00:00", observer="earth",
+        0 * u.arcsec,
+        0 * u.arcsec,
+        frame=Helioprojective,
+        obstime="2013-10-28T12:00:00",
+        observer="earth",
     )
     header = make_fitswcs_header(
         data, centre, scale=[8, 8] * u.arcsec / u.pix, instrument="TEST", unit="DN"
@@ -50,8 +53,9 @@ def test_shape_and_dimensions(aia):
 
 def test_missing_wcs_keywords_are_reported():
     with pytest.raises(MapMetaValidationError, match="CRPIX1"):
-        GenericMap(np.zeros((4, 4)), {"cdelt1": 1, "cdelt2": 1, "crval1": 0, "crval2": 0,
-                                      "crpix2": 1})
+        GenericMap(
+            np.zeros((4, 4)), {"cdelt1": 1, "cdelt2": 1, "crval1": 0, "crval2": 0, "crpix2": 1}
+        )
 
 
 def test_three_dimensional_data_is_rejected():
@@ -70,8 +74,13 @@ def test_missing_cunit_warns_and_defaults():
 def test_missing_date_warns():
     header = make_fitswcs_header(
         np.zeros((4, 4)),
-        SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=Helioprojective,
-                 obstime="2013-10-28", observer="earth"),
+        SkyCoord(
+            0 * u.arcsec,
+            0 * u.arcsec,
+            frame=Helioprojective,
+            obstime="2013-10-28",
+            observer="earth",
+        ),
     )
     del header["date-obs"]
     smap = GenericMap(np.zeros((4, 4)), header)

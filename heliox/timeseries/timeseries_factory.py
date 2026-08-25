@@ -92,9 +92,7 @@ class TimeSeriesFactory:
             elif isinstance(argument, (list, tuple)):
                 arguments = list(argument) + arguments
             elif isinstance(argument, (str, os.PathLike)):
-                triples.extend(
-                    self._parse_path(argument, silence_errors=silence_errors, **kwargs)
-                )
+                triples.extend(self._parse_path(argument, silence_errors=silence_errors, **kwargs))
             else:
                 raise TypeError(
                     f"TimeSeries does not know what to do with a "
@@ -189,15 +187,15 @@ class TimeSeriesFactory:
 
 def _is_meta(value):
     """Is this something that could be metadata rather than units?"""
-    return isinstance(value, (dict, MetaDict, TimeSeriesMetaData)) and not _looks_like_units(
-        value
-    )
+    return isinstance(value, (dict, MetaDict, TimeSeriesMetaData)) and not _looks_like_units(value)
 
 
 def _looks_like_units(value):
     """Units mappings have unit values; metadata mappings do not."""
-    return isinstance(value, dict) and bool(value) and all(
-        isinstance(each, (u.UnitBase, u.Quantity)) for each in value.values()
+    return (
+        isinstance(value, dict)
+        and bool(value)
+        and all(isinstance(each, (u.UnitBase, u.Quantity)) for each in value.values())
     )
 
 
@@ -216,9 +214,7 @@ def _from_table(table):
         (name for name in names if name.lower() in ("time", "date", "date-obs")), None
     )
     if time_column is None:
-        raise ValueError(
-            "The table needs a time column, named 'time', 'date' or 'date-obs'."
-        )
+        raise ValueError("The table needs a time column, named 'time', 'date' or 'date-obs'.")
 
     times = table[time_column]
     index = pd.DatetimeIndex(
@@ -280,9 +276,7 @@ def _read_csv(filepath, **kwargs):
 def _read_fits(filepath, **kwargs):
     """Read the first binary table extension of a FITS file."""
     with fits.open(filepath, **kwargs) as hdulist:
-        table_hdu = next(
-            (hdu for hdu in hdulist if isinstance(hdu, fits.BinTableHDU)), None
-        )
+        table_hdu = next((hdu for hdu in hdulist if isinstance(hdu, fits.BinTableHDU)), None)
         if table_hdu is None:
             raise UnrecognizedFileTypeError(
                 f"{filepath} has no binary table extension to read as a time series."
@@ -310,9 +304,7 @@ def _read_fits(filepath, **kwargs):
             columns[name] = np.asarray(table_hdu.data[name], dtype=float)
             raw_unit = table_hdu.header.get(f"TUNIT{position}")
             units[name] = (
-                u.Unit(raw_unit, parse_strict="silent")
-                if raw_unit
-                else u.dimensionless_unscaled
+                u.Unit(raw_unit, parse_strict="silent") if raw_unit else u.dimensionless_unscaled
             )
 
         return pd.DataFrame(columns, index=index), meta, units

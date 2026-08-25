@@ -186,7 +186,7 @@ def _limb_darkening_coefficients(wavelength):
 
 
 def sunspot_number_to_flux(sunspot_number):
-    """
+    r"""
     Estimate the 10.7 cm radio flux from the international sunspot number.
 
     Uses the quadratic relation of Holland & Vaughan (1984),

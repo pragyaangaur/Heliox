@@ -9,10 +9,10 @@ them.
 Users should call the public wrappers in `heliox.sun.sun` rather than these.
 """
 
-import erfa
 import numpy as np
 
 import astropy.units as u
+import erfa
 from astropy.coordinates import (
     GCRS,
     GeocentricMeanEcliptic,
@@ -179,9 +179,7 @@ def _ecliptic_to_equatorial(lon, lat, obliquity):
         np.sin(lon) * np.cos(obliquity) - np.tan(lat) * np.sin(obliquity),
         np.cos(lon),
     )
-    dec = np.arcsin(
-        np.sin(lat) * np.cos(obliquity) + np.cos(lat) * np.sin(obliquity) * np.sin(lon)
-    )
+    dec = np.arcsin(np.sin(lat) * np.cos(obliquity) + np.cos(lat) * np.sin(obliquity) * np.sin(lon))
     return (ra.to(u.deg) % (360 * u.deg), dec.to(u.deg))
 
 

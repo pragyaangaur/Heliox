@@ -120,18 +120,18 @@ def test_carrington_rotation_time_is_vectorised():
 
 
 def test_true_and_apparent_longitude_differ_by_aberration():
-    difference = (
-        sun.true_longitude("2013-10-28") - sun.apparent_longitude("2013-10-28")
-    ).to_value(u.arcsec)
+    difference = (sun.true_longitude("2013-10-28") - sun.apparent_longitude("2013-10-28")).to_value(
+        u.arcsec
+    )
     # Aberration moves the Sun back by 20.5 arcseconds and nutation of the
     # equinox moves the reference point forward by about 9, leaving 11.
     assert 5 < difference < 20
 
 
 def test_longitude_advances_by_about_a_degree_a_day():
-    step = (
-        sun.apparent_longitude("2013-10-29") - sun.apparent_longitude("2013-10-28")
-    ).to_value(u.deg)
+    step = (sun.apparent_longitude("2013-10-29") - sun.apparent_longitude("2013-10-28")).to_value(
+        u.deg
+    )
     assert step == pytest.approx(1.0, abs=0.05)
 
 

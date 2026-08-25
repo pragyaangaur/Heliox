@@ -125,9 +125,7 @@ def solar_rotate_coordinate(coordinate, *, time=None, observer=None, model="howa
     # Return the result in the same kind of frame the caller supplied.
     if isinstance(start_frame, Helioprojective):
         return rotated.transform_to(
-            Helioprojective(
-                obstime=new_time, observer=observer, rsun=start_frame.rsun
-            )
+            Helioprojective(obstime=new_time, observer=observer, rsun=start_frame.rsun)
         )
     target = start_frame.replicate_without_data()
     target = target.__class__(

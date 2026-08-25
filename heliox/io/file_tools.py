@@ -93,9 +93,7 @@ def read_file(filepath, filetype=None, **kwargs):
     filetype = filetype or detect_filetype(filepath)
     if filetype == "fits":
         return _fits.read(filepath, **kwargs)
-    raise UnrecognizedFileTypeError(
-        f"heliox has no reader for {filetype!r} files."
-    )
+    raise UnrecognizedFileTypeError(f"heliox has no reader for {filetype!r} files.")
 
 
 def read_file_header(filepath, filetype=None, **kwargs):

@@ -61,8 +61,10 @@ def _active_regions(shape, radial, rng, count, amplitude, size):
             continue
 
         width = size * rng.uniform(0.6, 1.6)
-        field += amplitude * rng.uniform(0.4, 1.0) * np.exp(
-            -((cols - x) ** 2 + (rows - y) ** 2) / (2 * width**2)
+        field += (
+            amplitude
+            * rng.uniform(0.4, 1.0)
+            * np.exp(-((cols - x) ** 2 + (rows - y) ** 2) / (2 * width**2))
         )
         placed += 1
     return field
@@ -127,7 +129,9 @@ def make_disc_image(
         # Optically thin emission: brightness grows towards the limb because
         # the line of sight is longer, then falls off above it.
         with np.errstate(invalid="ignore", divide="ignore"):
-            path_length = np.where(on_disc, 1.0 / np.sqrt(1.0 - np.clip(radial, 0, 0.995) ** 2), 0.0)
+            path_length = np.where(
+                on_disc, 1.0 / np.sqrt(1.0 - np.clip(radial, 0, 0.995) ** 2), 0.0
+            )
         image[on_disc] = 100.0 * np.clip(path_length[on_disc], 1.0, 4.0)
         # Coronal emission above the limb, decaying with height.
         above = ~on_disc
@@ -205,9 +209,13 @@ def make_magnetogram(shape=(1024, 1024), *, field_of_view=1.15, pairs=5, seed=No
         strength = rng.uniform(500, 2500)
 
         for sign, offset in ((1, -separation / 2), (-1, separation / 2)):
-            field += sign * strength * np.exp(
-                -((cols - (x + offset)) ** 2 + (rows - (y + offset * tilt)) ** 2)
-                / (2 * width**2)
+            field += (
+                sign
+                * strength
+                * np.exp(
+                    -((cols - (x + offset)) ** 2 + (rows - (y + offset * tilt)) ** 2)
+                    / (2 * width**2)
+                )
             )
 
     # Quiet-Sun salt-and-pepper network.
@@ -267,9 +275,7 @@ def make_coronagraph_image(shape=(512, 512), *, occulter=2.2, field_of_view=6.0,
     for _ in range(4):
         angle = rng.uniform(0, 2 * np.pi)
         width = rng.uniform(0.15, 0.4)
-        separation = np.arctan2(
-            np.sin(position_angle - angle), np.cos(position_angle - angle)
-        )
+        separation = np.arctan2(np.sin(position_angle - angle), np.cos(position_angle - angle))
         streamers += rng.uniform(0.5, 1.5) * np.exp(-(separation**2) / (2 * width**2))
     brightness = brightness * (1.0 + streamers)
 
@@ -475,8 +481,7 @@ def make_hdu(
         )
     else:
         raise ValueError(
-            f"Unknown sample image kind {kind!r}. "
-            "Choose from 'aia', 'hmi', 'continuum' or 'lasco'."
+            f"Unknown sample image kind {kind!r}. Choose from 'aia', 'hmi', 'continuum' or 'lasco'."
         )
 
     # Single precision is plenty for synthetic data and halves the size of
@@ -533,7 +538,9 @@ def make_xray_lightcurve(
 
     # A slowly varying B-class background.
     background = 1.5e-7 * (
-        1 + 0.3 * np.sin(2 * np.pi * minutes / (minutes[-1] or 1)) + 0.05 * rng.normal(size=n_samples)
+        1
+        + 0.3 * np.sin(2 * np.pi * minutes / (minutes[-1] or 1))
+        + 0.05 * rng.normal(size=n_samples)
     )
     long_channel = np.clip(background, 1e-9, None)
 

@@ -21,8 +21,11 @@ def blob():
     rows, columns = np.indices((128, 128))
     data = 100 * np.exp(-((rows - 80) ** 2 + (columns - 40) ** 2) / (2 * 6.0**2))
     centre = SkyCoord(
-        0 * u.arcsec, 0 * u.arcsec, frame=Helioprojective,
-        obstime="2013-10-28T12:00:00", observer="earth",
+        0 * u.arcsec,
+        0 * u.arcsec,
+        frame=Helioprojective,
+        obstime="2013-10-28T12:00:00",
+        observer="earth",
     )
     header = make_fitswcs_header(data, centre, scale=[4, 4] * u.arcsec / u.pix)
     return GenericMap(data, header)
