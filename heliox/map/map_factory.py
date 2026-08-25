@@ -151,7 +151,9 @@ class MapFactory:
         return pairs
 
     # ------------------------------------------------------------------
-    def __call__(self, *args, sequence=False, sortby="date", silence_errors=False, **kwargs):
+    def __call__(
+        self, *args, sequence=False, composite=False, sortby="date", silence_errors=False, **kwargs
+    ):
         """
         Build one or more maps.
 
@@ -163,6 +165,8 @@ class MapFactory:
         sequence : `bool`, optional
             If `True`, return a `~heliox.map.MapSequence` rather than a list,
             even when only one image was found.
+        composite : `bool`, optional
+            If `True`, return a `~heliox.map.CompositeMap` instead.
         sortby : {'date', None}, optional
             How to order a sequence.
         silence_errors : `bool`, optional
@@ -206,10 +210,16 @@ class MapFactory:
         if not maps:
             raise NoMapsInFileError("Nothing could be loaded as a map.")
 
+        if sequence and composite:
+            raise ValueError("Ask for either a sequence or a composite, not both.")
         if sequence:
             from heliox.map.mapsequence import MapSequence
 
             return MapSequence(maps, sortby=sortby)
+        if composite:
+            from heliox.map.compositemap import CompositeMap
+
+            return CompositeMap(maps)
         return maps[0] if len(maps) == 1 else maps
 
 
