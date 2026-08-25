@@ -363,27 +363,34 @@ def make_header(
 
     # Where the observer was.
     header["DATE-OBS"] = time.utc.isot
-    header["DSUN_OBS"] = earth.radius.to_value(u.m)
-    header["HGLN_OBS"] = earth.lon.to_value(u.deg)
-    header["HGLT_OBS"] = earth.lat.to_value(u.deg)
-    header["RSUN_REF"] = constants.radius.to_value(u.m)
-    header["RSUN_OBS"] = angular_radius.to_value(u.arcsec)
+    header["DSUN_OBS"] = float(earth.radius.to_value(u.m))
+    header["HGLN_OBS"] = float(earth.lon.to_value(u.deg))
+    header["HGLT_OBS"] = float(earth.lat.to_value(u.deg))
+    header["RSUN_REF"] = float(constants.radius.to_value(u.m))
+    header["RSUN_OBS"] = float(angular_radius.to_value(u.arcsec))
 
     # Instrument identification.
     header["TELESCOP"] = telescope
     header["INSTRUME"] = instrument
     header["DETECTOR"] = detector
     header["OBSRVTRY"] = observatory or telescope
-    header["WAVELNTH"] = u.Quantity(wavelength, u.AA).to_value(u.AA)
+    header["WAVELNTH"] = float(u.Quantity(wavelength, u.AA).to_value(u.AA))
     header["WAVEUNIT"] = "angstrom"
-    header["EXPTIME"] = u.Quantity(exposure_time, u.s).to_value(u.s)
+    header["EXPTIME"] = float(u.Quantity(exposure_time, u.s).to_value(u.s))
     header["BUNIT"] = unit
     header["LVL_NUM"] = 1.5
 
     return header
 
 
-def make_hdu(kind="aia", shape=(1024, 1024), *, obstime="2013-10-28T12:00:00", seed=None):
+def make_hdu(
+    kind="aia",
+    shape=(1024, 1024),
+    *,
+    obstime="2013-10-28T12:00:00",
+    wavelength=None,
+    seed=None,
+):
     """
     Build a complete synthetic FITS HDU.
 
@@ -395,6 +402,8 @@ def make_hdu(kind="aia", shape=(1024, 1024), *, obstime="2013-10-28T12:00:00", s
         The shape of the image.
     obstime : time-like, optional
         The observation time.
+    wavelength : `~astropy.units.Quantity`, optional
+        The passband, for the ``'aia'`` kind. Defaults to 171 angstroms.
     seed : `int`, optional
         Seed for the random number generator.
 
@@ -404,21 +413,24 @@ def make_hdu(kind="aia", shape=(1024, 1024), *, obstime="2013-10-28T12:00:00", s
 
     Examples
     --------
+    >>> import astropy.units as u
     >>> from heliox.data._synthetic import make_hdu
-    >>> hdu = make_hdu('hmi', (64, 64), seed=1)
-    >>> hdu.header['INSTRUME']
+    >>> make_hdu('hmi', (64, 64), seed=1).header['INSTRUME']
     'HMI'
+    >>> make_hdu('aia', (64, 64), wavelength=193 * u.AA, seed=1).header['WAVELNTH']
+    193.0
     """
     kind = kind.lower()
     if kind == "aia":
-        data = make_disc_image(shape, wavelength=171 * u.AA, seed=seed)
+        passband = 171 * u.AA if wavelength is None else u.Quantity(wavelength, u.AA)
+        data = make_disc_image(shape, wavelength=passband, seed=seed)
         header = make_header(
             shape,
             obstime=obstime,
             instrument="AIA",
             telescope="SDO",
             detector="AIA",
-            wavelength=171 * u.AA,
+            wavelength=passband,
             unit="DN",
         )
     elif kind == "hmi":

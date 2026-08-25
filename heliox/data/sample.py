@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import astropy.units as u
 from astropy.io import fits
 
 from heliox.data._synthetic import make_hdu
@@ -35,8 +36,16 @@ __all__ = [
 ]
 
 _SAMPLES = {
-    "AIA_171_IMAGE": dict(kind="aia", shape=(512, 512), obstime="2013-10-28T12:00:00", seed=171),
-    "AIA_193_IMAGE": dict(kind="aia", shape=(512, 512), obstime="2013-10-28T12:00:00", seed=193),
+    "AIA_171_IMAGE": dict(
+        kind="aia", shape=(512, 512), obstime="2013-10-28T12:00:00", seed=171
+    ),
+    "AIA_193_IMAGE": dict(
+        kind="aia",
+        shape=(512, 512),
+        obstime="2013-10-28T12:00:00",
+        wavelength=193 * u.AA,
+        seed=193,
+    ),
     "HMI_MAGNETOGRAM": dict(kind="hmi", shape=(512, 512), obstime="2013-10-28T12:00:00", seed=61),
     "HMI_CONTINUUM_IMAGE": dict(
         kind="continuum", shape=(512, 512), obstime="2013-10-28T12:00:00", seed=62
