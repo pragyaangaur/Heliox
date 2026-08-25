@@ -1,9 +1,9 @@
-# heliox
+# Heliox
 
 A solar physics toolkit for Python, built on `astropy`, `numpy`, `scipy`,
 `matplotlib` and `pandas`.
 
-`heliox` provides the data structures solar physics analysis is written in: a
+`Heliox` provides the data structures solar physics analysis is written in: a
 coordinate-aware `Map` for solar images, a `TimeSeries` for instrument light
 curves, a full set of solar coordinate frames plugged into
 `astropy.coordinates`, and the ephemeris, rotation and plotting machinery that
@@ -15,10 +15,10 @@ documentation is reproducible.
 
 ```python
 import astropy.units as u
-import heliox.map
-from heliox.data.sample import AIA_171_IMAGE
+import Heliox.map
+from Heliox.data.sample import AIA_171_IMAGE
 
-aia = heliox.map.Map(AIA_171_IMAGE)
+aia = Heliox.map.Map(AIA_171_IMAGE)
 aia.peek(draw_limb=True, draw_grid=15 * u.deg)
 ```
 
@@ -27,8 +27,8 @@ aia.peek(draw_limb=True, draw_grid=15 * u.deg)
 ## Installing
 
 ```bash
-git clone https://github.com/pragyaangaur/heliox
-cd heliox
+git clone https://github.com/pragyaangaur/Heliox
+cd Heliox
 pip install -e .
 ```
 
@@ -70,7 +70,7 @@ classical `B0` and `L0` ephemeris to a fraction of an arcsecond by an entirely
 independent route.
 
 ```python
-from heliox.coordinates import Helioprojective, get_body_heliographic_stonyhurst
+from Heliox.coordinates import Helioprojective, get_body_heliographic_stonyhurst
 
 disc_centre = SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=Helioprojective,
                        obstime='2013-10-28T12:00:00', observer='earth')
@@ -89,10 +89,10 @@ of Mars's.
 ### Time series with units attached
 
 ```python
-import heliox.timeseries
-from heliox.data.sample import GOES_XRS_TIMESERIES
+import Heliox.timeseries
+from Heliox.data.sample import GOES_XRS_TIMESERIES
 
-goes = heliox.timeseries.TimeSeries(GOES_XRS_TIMESERIES)
+goes = Heliox.timeseries.TimeSeries(GOES_XRS_TIMESERIES)
 goes.flare_class     # 'M9.7'
 goes.peak_time       # <Time object: 2013-10-28T12:22:00.000>
 goes.units['xrsb']   # Unit("W / m2")
@@ -106,7 +106,7 @@ Queries are built from physical attributes and dispatched to whichever client
 can serve them, so you describe what you want rather than where it lives.
 
 ```python
-from heliox.net import Fido, attrs as a
+from Heliox.net import Fido, attrs as a
 
 results = Fido.search(
     a.Time('2013-10-28', '2013-10-29')
@@ -115,14 +115,14 @@ results = Fido.search(
 files = Fido.fetch(results)
 ```
 
-heliox ships one client, which searches the built-in sample catalogue. It
+Heliox ships one client, which searches the built-in sample catalogue. It
 implements exactly the interface a network client would, so adding a real
 archive means writing another `BaseClient`.
 
 ### The Sun itself
 
 ```python
-from heliox.sun import sun, constants
+from Heliox.sun import sun, constants
 
 sun.B0('2013-10-28')                       # <Quantity 4.77 deg>
 sun.carrington_rotation_number('2013-10-28')  # 2143.09...
@@ -166,7 +166,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Relationship to SunPy
 
-heliox is an independent reimplementation, written to understand how a solar
+Heliox is an independent reimplementation, written to understand how a solar
 physics toolkit fits together. The API is deliberately similar to
 [SunPy](https://sunpy.org)'s, because SunPy's design is a good one and
 familiarity is worth something, but no code is shared and the two are not

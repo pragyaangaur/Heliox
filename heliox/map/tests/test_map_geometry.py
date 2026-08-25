@@ -140,13 +140,34 @@ def test_superpixel_shape_and_scale(aia):
 
 
 def test_superpixel_conserves_the_total(aia):
+    # The blocks tile the image, so the totals must agree. They are summed in a
+    # different order, though, and the sample data is single precision, so the
+    # comparison has to be relative: one ulp at this magnitude is about 4, and
+    # any absolute tolerance below that would be testing the summation order
+    # rather than conservation.
     binned = aia.superpixel([2, 2] * u.pix)
-    assert binned.data.sum() == pytest.approx(aia.data.sum(), rel=1e-6)
+    assert binned.data.sum() == pytest.approx(aia.data.sum(), rel=1e-5)
+
+
+def test_superpixel_conserves_the_total_in_double_precision():
+    # The same check holds far more tightly in float64, which confirms that the
+    # looser tolerance above is about the dtype and not about the binning.
+    data = np.random.default_rng(0).random((64, 64))
+    centre = SkyCoord(
+        0 * u.arcsec,
+        0 * u.arcsec,
+        frame=Helioprojective,
+        obstime="2013-10-28T12:00:00",
+        observer="earth",
+    )
+    smap = GenericMap(data, make_fitswcs_header(data, centre))
+    binned = smap.superpixel([2, 2] * u.pix)
+    assert binned.data.sum() == pytest.approx(data.sum(), rel=1e-12)
 
 
 def test_superpixel_with_mean(aia):
     binned = aia.superpixel([2, 2] * u.pix, func=np.mean)
-    assert binned.data.mean() == pytest.approx(aia.data.mean(), rel=1e-6)
+    assert binned.data.mean() == pytest.approx(aia.data.mean(), rel=1e-5)
 
 
 def test_superpixel_block_centre_lands_where_expected(blob):

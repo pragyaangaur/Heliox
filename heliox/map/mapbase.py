@@ -786,7 +786,7 @@ class GenericMap:
         Bin neighbouring pixels together.
 
         Unlike `resample`, this combines whole pixels, so with the default
-        ``func`` of `numpy.sum` the total signal is preserved exactly.
+        ``func`` of `numpy.sum` the total signal is conserved.
 
         Parameters
         ----------
@@ -802,8 +802,19 @@ class GenericMap:
         -------
         `GenericMap`
 
+        Notes
+        -----
+        The arithmetic is done in the image's own dtype, so for a single
+        precision image the two totals agree to a few parts in ten million
+        rather than bit for bit. Cast the data to ``float64`` first if you need
+        better than that.
+
+        A partial block at the top or right edge has no sensible value, so it
+        is discarded rather than padded.
+
         Examples
         --------
+        >>> import numpy as np
         >>> import astropy.units as u
         >>> import heliox.map
         >>> from heliox.data.sample import AIA_171_IMAGE
@@ -811,7 +822,7 @@ class GenericMap:
         >>> binned = aia.superpixel([2, 2] * u.pix)
         >>> binned.data.shape
         (256, 256)
-        >>> bool(abs(binned.data.sum() - aia.data.sum()) < 1)
+        >>> bool(np.isclose(binned.data.sum(), aia.data.sum(), rtol=1e-5))
         True
         """
         from heliox.image.resample import reshape_image_to_4d_superpixel
