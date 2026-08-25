@@ -176,6 +176,41 @@ def test_helioprojective_to_helioprojective_between_observers():
     assert back.Ty.to_value(u.arcsec) == pytest.approx(100, abs=1e-6)
 
 
+def test_disc_centre_from_earth_is_near_the_limb_from_mars():
+    # In October 2013 Mars was about 91 degrees ahead of the Earth in
+    # heliographic longitude, so the point at the centre of the Earth's view of
+    # the disc sits right at the edge of Mars's. A round trip cannot catch a
+    # mistake here, because getting the observer axes wrong is self-inverse.
+    mars = get_body_heliographic_stonyhurst("mars", OBSTIME)
+    assert mars.lon.to_value(u.deg) == pytest.approx(91.5, abs=1.0)
+
+    disc_centre = hpc(0 * u.arcsec, 0 * u.arcsec)
+    from_mars = disc_centre.transform_to(Helioprojective(obstime=OBSTIME, observer=mars))
+
+    separation = np.hypot(from_mars.Tx.to_value(u.arcsec), from_mars.Ty.to_value(u.arcsec))
+    mars_limb = Helioprojective(obstime=OBSTIME, observer=mars).angular_radius
+    assert separation == pytest.approx(mars_limb.to_value(u.arcsec), rel=0.02)
+
+
+def test_heliocentric_axes_follow_their_own_observer():
+    # A heliocentric coordinate referred to one observer must be rotated before
+    # it can be projected onto another observer's sky.
+    mars = get_body_heliographic_stonyhurst("mars", OBSTIME)
+    feature = SkyCoord(hgs(0 * u.deg, 0 * u.deg).frame.make_3d())
+
+    earth_hcc = feature.transform_to(Heliocentric(obstime=OBSTIME, observer="earth"))
+    direct = earth_hcc.transform_to(Helioprojective(obstime=OBSTIME, observer=mars))
+    via_hgs = feature.transform_to(Helioprojective(obstime=OBSTIME, observer=mars))
+
+    assert direct.Tx.to_value(u.arcsec) == pytest.approx(via_hgs.Tx.to_value(u.arcsec), abs=1e-6)
+
+
+def test_heliocentric_without_an_observer_cannot_be_projected():
+    coord = Heliocentric(1 * u.km, 2 * u.km, 3 * u.km, obstime=OBSTIME)
+    with pytest.raises(ConvertError, match="needs an observer"):
+        coord.transform_to(Helioprojective(obstime=OBSTIME, observer="earth"))
+
+
 def test_stonyhurst_longitude_drifts_with_the_earth():
     fixed = SkyCoord(hgs(0 * u.deg, 0 * u.deg, 1 * u.AU))
     later = fixed.transform_to(HeliographicStonyhurst(obstime="2013-11-28T12:00:00"))
