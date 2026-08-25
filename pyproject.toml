@@ -59,6 +59,32 @@ target-version = "py310"
 select = ["E", "F", "W", "I", "UP", "B"]
 ignore = ["E501", "B008"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tests deliberately evaluate properties for their side effects, usually inside
+# a pytest.raises block, which looks like a useless expression.
+"heliox/*/tests/*.py" = ["B018"]
+"heliox/*/*/tests/*.py" = ["B018"]
+# The sample names are served by a module-level __getattr__ so that the files
+# are only generated when they are actually used.
+"heliox/data/sample.py" = ["F822"]
+# Star imports are how the subpackages re-export their public API.
+"heliox/*/__init__.py" = ["F403", "F405"]
+
+[tool.ruff.lint.isort]
+# Scientific Python convention: numpy and friends, then astropy, then heliox.
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "astropy",
+    "first-party",
+    "local-folder",
+]
+known-first-party = ["heliox"]
+
+[tool.ruff.lint.isort.sections]
+astropy = ["astropy", "erfa"]
+
 [tool.coverage.run]
 source = ["heliox"]
 omit = ["*/tests/*", "*/conftest.py"]
