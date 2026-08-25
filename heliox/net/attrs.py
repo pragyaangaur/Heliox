@@ -244,6 +244,14 @@ class Time(Range):
         """The interval as a `~heliox.time.TimeRange`."""
         return TimeRange(self.start, self.end)
 
+    def __contains__(self, value):
+        """Membership accepts anything `~heliox.time.parse_time` understands."""
+        try:
+            moment = parse_time(value)
+        except (ValueError, TypeError):
+            return False
+        return bool(self.start <= moment <= self.end)
+
     def __repr__(self):
         return f"<Time({self.start.isot}, {self.end.isot})>"
 
