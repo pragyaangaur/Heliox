@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import scipy.ndimage
 
 import astropy.units as u
 
@@ -131,3 +132,23 @@ def test_rejects_a_singular_matrix():
 def test_rejects_a_bad_interpolation_order():
     with pytest.raises(ValueError, match="integer from 0 to 5"):
         affine_transform(np.zeros((4, 4)), np.identity(2), order=9)
+
+
+@pytest.mark.parametrize("order", [1, 3])
+def test_rotation_agrees_with_scipy_affine_transform(order):
+    rng = np.random.default_rng(1)
+    image = rng.normal(size=(17, 13))
+    rmatrix = rotation_matrix_2d(25 * u.deg)
+    # scipy pulls each output pixel from the input, with the inverse, flipped to (row, column).
+    flipped = np.linalg.inv(rmatrix)[::-1, ::-1]
+    center = (np.array(image.shape)[::-1] - 1) / 2.0
+    shift = center[::-1] - flipped @ center[::-1]
+    expected = scipy.ndimage.affine_transform(
+        image, flipped, offset=shift, order=order, mode="constant", cval=0.0
+    )
+    valid = scipy.ndimage.affine_transform(
+        np.ones_like(image), flipped, offset=shift, order=0, mode="constant", cval=0.0
+    )
+    expected = np.where(valid > 0.5, expected, np.nan)
+    result = affine_transform(image, rmatrix, order=order)
+    assert np.allclose(result, expected, rtol=1e-10, atol=1e-10, equal_nan=True)
