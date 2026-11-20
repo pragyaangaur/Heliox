@@ -47,19 +47,19 @@ def main():
             res = None
         rows.append((field, label, res, m.group(1) if m else None, killed))
         print(rows[-1], file=sys.stderr, flush=True)
-    base = {f: res for f, label, res, _, _ in rows if label.startswith("original")}
-    print("| Field | Implementation | Median time (s) | Speedup vs original | Peak RSS (GB) |")
-    print("| --- | --- | ---: | ---: | ---: |")
+    base = {f: res for f, label, res, _, _ in rows if label.startswith("sunkit")}
+    print("| Field | Implementation | Median time (s) | Speedup vs original | Peak RSS, memwatch (GB) | Peak RSS, in process (GB) |")
+    print("| --- | --- | ---: | ---: | ---: | ---: |")
     for field, label, res, rss, killed in rows:
         name = {"real": "real 512x1024", "random1024": "random 1024x1024"}[field]
         if label.startswith("baseline"):
-            print(f"| {name} | {label} | | | {rss} |")
+            print(f"| {name} | {label} | | | {rss} | {res['maxrss_gb']:.2f} |")
         elif killed or res is None:
-            print(f"| {name} | {label} | killed at the memory limit | | >{a.limit_gb} |")
+            print(f"| {name} | {label} | killed at the memory limit | | >{a.limit_gb} | |")
         else:
             ref = base.get(field)
             sp = f"{ref['median'] / res['median']:.1f}x" if ref and not label.startswith("sunkit") else ""
-            print(f"| {name} | {label} | {res['median']:.4g} | {sp} | {rss} |")
+            print(f"| {name} | {label} | {res['median']:.4g} | {sp} | {rss} | {res['maxrss_gb']:.2f} |")
 
 
 if __name__ == "__main__":

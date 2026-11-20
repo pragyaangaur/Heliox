@@ -8,6 +8,7 @@ single-threaded Rust figure.
 """
 
 import json
+import resource
 import statistics
 import sys
 import time
@@ -54,12 +55,18 @@ def gamma_numpy(vx, vy, r=3):
     return out
 
 
+def maxrss_gb():
+    # ru_maxrss is in bytes on macOS and in kilobytes on Linux.
+    scale = 1 if sys.platform == "darwin" else 1024
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * scale / 1024**3
+
+
 def main():
     impl, field = sys.argv[1], sys.argv[2]
     repeats = int(sys.argv[3]) if len(sys.argv) > 3 else 3
     vx, vy = load_field(field)
     if impl == "baseline":
-        print(json.dumps({"impl": impl, "field": field, "times": [], "median": 0.0}))
+        print(json.dumps({"impl": impl, "field": field, "times": [], "median": 0.0, "maxrss_gb": maxrss_gb()}))
         return
     if impl == "original":
         from sunkit_image.asda import calculate_gamma_values as fn
@@ -78,7 +85,7 @@ def main():
         t0 = time.perf_counter()
         fn(vx, vy)
         times.append(time.perf_counter() - t0)
-    print(json.dumps({"impl": impl, "field": field, "times": times, "median": statistics.median(times)}))
+    print(json.dumps({"impl": impl, "field": field, "times": times, "median": statistics.median(times), "maxrss_gb": maxrss_gb()}))
 
 
 if __name__ == "__main__":
