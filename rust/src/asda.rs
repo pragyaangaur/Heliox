@@ -15,7 +15,7 @@
 //!   divided by the number of window points.
 
 use ndarray::{Array3, ArrayView2};
-use numpy::{PyArray3, PyReadonlyArray2, PyUntypedArrayMethods, ToPyArray};
+use numpy::{PyArray3, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
@@ -194,21 +194,23 @@ fn pixel<T: Float>(
     (g1, g2)
 }
 
-/// Compute `(gamma1, gamma2)` into an array of shape `(rows, cols, 2)` where `rows x cols` is the
-/// shape of `vx`. Pixels with `r <= i < nrows - r` and `r <= j < ncols - r` are filled and all
-/// others stay zero. `nrows` and `ncols` are the loop bounds of the original, which come from
-/// the shape of the input before any magnification and so can be smaller than the array.
-pub fn gamma_values<T: Float>(
+/// Compute `(gamma1, gamma2)` into `out`, a zeroed buffer of `rows * cols * 2` values in C order
+/// where `rows x cols` is the shape of `vx`. Pixels with `r <= i < nrows - r` and
+/// `r <= j < ncols - r` are filled and all others are left as they are. `nrows` and `ncols` are the
+/// loop bounds of the original, which come from the shape of the input before any magnification
+/// and so can be smaller than the array.
+pub fn gamma_into<T: Float>(
     vx: ArrayView2<T>,
     vy: ArrayView2<T>,
     r: usize,
     nrows: usize,
     ncols: usize,
-) -> Array3<T> {
+    out: &mut [T],
+) {
     assert_eq!(vx.dim(), vy.dim());
     let (rows, cols) = vx.dim();
     assert!(nrows <= rows && ncols <= cols);
-    let mut out = vec![T::zero(); rows * cols * 2];
+    assert_eq!(out.len(), rows * cols * 2);
     if nrows > 2 * r && ncols > 2 * r && cols > 0 {
         let st = Stencil::new(r);
         out.par_chunks_mut(cols * 2).enumerate().for_each_init(
@@ -225,6 +227,19 @@ pub fn gamma_values<T: Float>(
             },
         );
     }
+}
+
+/// Allocating version of [`gamma_into`] that returns an array of shape `(rows, cols, 2)`.
+pub fn gamma_values<T: Float>(
+    vx: ArrayView2<T>,
+    vy: ArrayView2<T>,
+    r: usize,
+    nrows: usize,
+    ncols: usize,
+) -> Array3<T> {
+    let (rows, cols) = vx.dim();
+    let mut out = vec![T::zero(); rows * cols * 2];
+    gamma_into(vx, vy, r, nrows, ncols, &mut out);
     Array3::from_shape_vec((rows, cols, 2), out).unwrap()
 }
 
@@ -253,8 +268,15 @@ fn run<'py, T: Float + numpy::Element>(
     let ax = ax.as_standard_layout();
     let ay = ay.as_standard_layout();
     let (vxv, vyv) = (ax.view(), ay.view());
-    let out = py.detach(|| gamma_values(vxv, vyv, r, nrows, ncols));
-    Ok(out.to_pyarray(py))
+    // The output is created as a NumPy array and filled in place, so there is no second copy.
+    // `zeros` returns a fresh C contiguous array that nothing else references yet.
+    let out = PyArray3::<T>::zeros(py, [rows, cols, 2], false);
+    {
+        let slice = unsafe { out.as_slice_mut() }
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        py.detach(|| gamma_into(vxv, vyv, r, nrows, ncols, slice));
+    }
+    Ok(out)
 }
 
 #[pyfunction]
