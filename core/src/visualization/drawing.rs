@@ -99,16 +99,20 @@ pub fn grid_paths<'py>(
 /// The longitudes and latitudes of the four sides of a rectangle whose
 /// opposite corners are `(lon0, lat0)` and `(lon1, lat1)`.
 ///
-/// Each side is sampled at `count` points. The sides run round the rectangle
-/// starting from the bottom edge: first along the bottom, then up the right,
-/// back along the top and down the left.
+/// The corner `(lon1, lat1)` appears twice. The sides that are held constant
+/// use it as given. The sides that are sampled between the corners use
+/// `(lon1_along, lat1_along)`, which is the same corner expressed in the units
+/// of the bottom left corner. Each side is sampled at `count` points. The sides
+/// run round the rectangle starting from the bottom edge: first along the
+/// bottom, then up the right, back along the top and down the left.
 fn rectangle_sides(
     (lon0, lat0): (f64, f64),
     (lon1, lat1): (f64, f64),
+    (lon1_along, lat1_along): (f64, f64),
     count: usize,
 ) -> ([Vec<f64>; 4], [Vec<f64>; 4]) {
-    let along_lon = linspace(lon0, lon1, count);
-    let along_lat = linspace(lat0, lat1, count);
+    let along_lon = linspace(lon0, lon1_along, count);
+    let along_lat = linspace(lat0, lat1_along, count);
     let reversed = |values: &[f64]| values.iter().rev().copied().collect::<Vec<f64>>();
     let lons = [
         along_lon.clone(),
@@ -126,18 +130,18 @@ fn rectangle_sides(
 }
 
 /// The longitudes and latitudes of the four sides of a rectangle, as two
-/// `(4, resolution)` arrays with one side per row.
+/// `(4, resolution)` arrays with one side per row. See `rectangle_sides` for the
+/// meaning of the corners.
 #[pyfunction]
 pub fn quadrangle_sides<'py>(
     py: Python<'py>,
-    lon0: f64,
-    lat0: f64,
-    lon1: f64,
-    lat1: f64,
+    bottom_left: (f64, f64),
+    top_right: (f64, f64),
+    top_right_in_bottom_units: (f64, f64),
     resolution: i64,
 ) -> PyResult<(Matrix<'py>, Matrix<'py>)> {
     let count = sample_count(resolution)?;
-    let (lons, lats) = rectangle_sides((lon0, lat0), (lon1, lat1), count);
+    let (lons, lats) = rectangle_sides(bottom_left, top_right, top_right_in_bottom_units, count);
     let lons =
         Array2::from_shape_vec((4, count), lons.concat()).expect("four sides of count points");
     let lats =
@@ -184,7 +188,7 @@ mod tests {
 
     #[test]
     fn rectangle_sides_follow_the_corners() {
-        let (lons, lats) = rectangle_sides((0.0, 1.0), (2.0, 3.0), 3);
+        let (lons, lats) = rectangle_sides((0.0, 1.0), (2.0, 3.0), (2.0, 3.0), 3);
         assert_eq!(lons[0], vec![0.0, 1.0, 2.0]);
         assert_eq!(lons[1], vec![2.0; 3]);
         assert_eq!(lons[2], vec![2.0, 1.0, 0.0]);

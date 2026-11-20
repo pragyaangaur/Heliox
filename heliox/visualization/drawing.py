@@ -194,20 +194,29 @@ def quadrangle(
     frame = bottom_left.frame.replicate_without_data()
     lon0, lat0 = bottom_left.spherical.lon, bottom_left.spherical.lat
     lon1, lat1 = top_right.spherical.lon, top_right.spherical.lat
-    lon_unit, lat_unit = lon0.unit, lat0.unit
 
+    # Each side keeps the unit that the corner it is built from had. The sides
+    # between the corners are sampled in the bottom left corner's units.
     side_lons, side_lats = quadrangle_sides(
-        lon0.value, lat0.value, lon1.to_value(lon_unit), lat1.to_value(lat_unit), resolution
+        (lon0.value, lat0.value),
+        (lon1.value, lat1.value),
+        (lon1.to_value(lon0.unit), lat1.to_value(lat0.unit)),
+        resolution,
     )
+    lon_units = [lon0.unit, lon1.unit, lon0.unit, lon0.unit]
+    lat_units = [lat0.unit, lat0.unit, lat1.unit, lat0.unit]
+    wrap_angles = [lon0.wrap_angle, lon1.wrap_angle, lon0.wrap_angle, lon0.wrap_angle]
 
     kwargs.setdefault("color", "white")
     kwargs.setdefault("linewidth", 1.0)
 
     lines = []
-    for lons, lats in zip(side_lons, side_lats, strict=True):
+    for lons, lats, lon_unit, lat_unit, wrap_angle in zip(
+        side_lons, side_lats, lon_units, lat_units, wrap_angles, strict=True
+    ):
         # Keep the longitudes wrapped as the corner's were, so that the values
         # are stored exactly as before.
-        lons = Longitude(lons * lon_unit, wrap_angle=lon0.wrap_angle)
+        lons = Longitude(lons * lon_unit, wrap_angle=wrap_angle)
         side = SkyCoord(lons, lats * lat_unit, frame=frame)
         lines.extend(axes.plot_coord(side, **kwargs))
     return lines

@@ -69,3 +69,29 @@ def test_quadrangle_sides_join_the_corners():
         ((20, 15), (-10, 15)),
         ((-10, 15), (-10, -5)),
     ]
+
+
+def test_quadrangle_corners_given_in_mixed_units_match_the_old_result():
+    # Frames report their spherical components in fixed units (degrees for
+    # Stonyhurst), so corners stored in arcseconds are drawn in degrees, as the
+    # old code drew them, and the corners land in the same places.
+    bottom_left = SkyCoord(-10 * u.deg, -5 * u.deg, frame=HeliographicStonyhurst, obstime=OBSTIME)
+    top_right = SkyCoord(
+        (20 * u.deg).to(u.arcsec),
+        (15 * u.deg).to(u.arcsec),
+        frame=HeliographicStonyhurst,
+        obstime=OBSTIME,
+    )
+    axes = RecordingAxes()
+    drawing.quadrangle(axes, bottom_left, top_right=top_right, resolution=10)
+
+    assert [side.spherical.lon.unit for side in axes.drawn] == [u.deg] * 4
+    assert [side.spherical.lat.unit for side in axes.drawn] == [u.deg] * 4
+    along_lon = np.linspace(-10.0, 20.0, 10)
+    assert axes.drawn[0].spherical.lon.to_value(u.deg) == pytest.approx(along_lon, abs=1e-12)
+    assert axes.drawn[1].spherical.lon.to_value(u.deg) == pytest.approx(
+        np.full(10, 20.0), abs=1e-12
+    )
+    assert axes.drawn[2].spherical.lat.to_value(u.deg) == pytest.approx(
+        np.full(10, 15.0), abs=1e-12
+    )
