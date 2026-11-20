@@ -2,6 +2,7 @@
 name = "heliox-core"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.88"
 description = "The Rust core of Heliox, built as the Python extension module heliox._core."
 license = "BSD-3-Clause"
 publish = false

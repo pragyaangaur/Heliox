@@ -4,6 +4,8 @@ This folder holds the Rust code behind the `heliox` package. It builds into one 
 
 The build uses maturin and pyo3. Installing Heliox with `pip install -e ".[test]"` compiles this crate, so a Rust toolchain must be installed.
 
+The minimum supported Rust version is 1.88, set by `rust-version` in `Cargo.toml`. The code uses `slice::as_chunks`, which was stabilised in 1.88. The pyo3 and numpy 0.30 crates need 1.85, and every other dependency needs an older version. Cargo refuses to build with an older compiler.
+
 ## Layout
 
 ```
