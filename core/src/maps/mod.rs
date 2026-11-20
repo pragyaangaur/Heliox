@@ -2,11 +2,12 @@
 //!
 //! `grid` holds the pixel index grids and the tests for whether a pixel is inside a map.
 //! `disk` holds the tests of helioprojective points against the solar disc.
-//! `format` holds the number formats of the map summary.
+//! `format` holds the number formats of the map summary. `meta` holds header keyword logic.
 
 mod disk;
 mod format;
 mod grid;
+mod meta;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -40,5 +41,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(disk::on_disk_mask, &module)?)?;
     module.add_function(wrap_pyfunction!(disk::disk_extent, &module)?)?;
     format::register(&module)?;
+    meta::register(&module)?;
     Ok(())
 }
