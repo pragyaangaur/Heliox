@@ -58,3 +58,10 @@ figures/*
 
 # Agent notes, kept local
 AGENTS.md
+
+# Rust extension build output
+rust/target/
+rust/Cargo.lock.bak
+*.dylib
+*.whl
+rust/bench/results/

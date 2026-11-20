@@ -1,0 +1,22 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "heliox-rs"
+version = "0.1.0"
+description = "Rust kernels for Heliox, starting with the ASDA gamma computation."
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+dependencies = ["numpy", "scipy"]
+
+[project.optional-dependencies]
+test = ["pytest", "sunkit-image", "scikit-image", "astropy"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "heliox_rs._core"
+features = ["extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
