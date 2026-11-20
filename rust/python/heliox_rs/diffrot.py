@@ -18,7 +18,10 @@ What runs where:
   rotations, the differential rotation and the NaN rule for points off the disk and behind the
   limb. See ``src/diffrot.rs``.
 
-The Rust result is not bit for bit the original's. It goes through wcslib and astropy
+Where the original maps a pixel to NaN is the same on pixel grids, but this is not a guarantee
+for every point: within about 1e-8 pixel of the limb, the finite and NaN boundaries of the two
+differ by up to about 5e-9 pixel, because the original's law of cosines cancels and its result
+there is rounding noise. The Rust result is not bit for bit the original's. It goes through wcslib and astropy
 representations in the original, and uses unit vectors here, so the source pixel coordinates agree
 to rounding. The measured differences are in the README.
 
@@ -32,10 +35,18 @@ construction, are:
 * rotation keyword arguments other than ``model`` and ``frame_time``, or a model sunpy rejects,
 * an observer or a time that sunpy cannot turn into the frames and matrices used here, for
   example when its transformations raise, or when they are not pure rotations,
-* an ``xy`` that is not a float array of shape ``(N, 2)``.
+* an ``xy`` that is not a float array of shape ``(N, 2)``,
+* any sunpy coordinate context that changes how helioprojective and heliographic coordinates
+  convert: an assumed screen (``SphericalScreen``, ``PlanarScreen``), ``propagate_with_solar_surface``
+  (which sets ``_autoapply_diffrot``) and ``transform_with_sun_center`` already being active
+  around the call. The kernel does not model them, so it checks the context variables
+  ``Helioprojective._assumed_screen``, ``_autoapply_diffrot`` and ``_ignore_sun_motion`` and runs the
+  original when any is set (or when they cannot be read),
+* a Rust error (a `ValueError` from the kernel), which runs the original instead of raising.
 
 The swap changes a module global of sunpy, so a lock and a depth count install it on the first
-entry and restore the true original on the last exit, which keeps overlapping calls from several
+entry and restore, on the last exit, the value that was there on the first entry (so a patch or
+spy that a user put on ``_warp_sun_coordinates`` survives), which keeps overlapping calls from several
 threads safe. Code outside `differential_rotate` that runs in another thread during that time also
 sees the Rust version, which gives the same results as the original within the tolerance above.
 """
@@ -51,6 +62,7 @@ __all__ = ["differential_rotate", "rust_inverse_map", "warp_sun_coordinates"]
 
 _MODULE = None
 _ORIGINAL = None
+_SAVED = None  # the value of sunpy's global on the first entry, while a swap is active
 _LOCK = threading.Lock()
 _DEPTH = 0
 
@@ -81,6 +93,31 @@ try:
     _original()
 except ImportError:
     pass
+
+def _fallback():
+    """What to run when the kernel does not apply: the value sunpy's global had before the swap."""
+    return _SAVED if _SAVED is not None else _original()
+
+
+def _coordinate_context_active():
+    """True when a sunpy coordinate context that the kernel does not model is active.
+
+    ``SphericalScreen`` and ``PlanarScreen`` set ``Helioprojective._assumed_screen``,
+    ``propagate_with_solar_surface`` sets ``_autoapply_diffrot``, and ``transform_with_sun_center``
+    sets ``_ignore_sun_motion``. If any of them cannot be read the answer is True.
+    """
+    try:
+        from sunpy.coordinates import _transformations
+        from sunpy.coordinates.frames import Helioprojective
+
+        return bool(
+            Helioprojective._assumed_screen.get()
+            or _transformations._autoapply_diffrot.get()
+            or _transformations._ignore_sun_motion.get()
+        )
+    except Exception:  # noqa: BLE001
+        return True
+
 
 # lonpole is a multiple of 90 degrees for every sunpy map, and wcslib takes exact sines and cosines
 # there, so the table is used instead of ``np.sin(np.deg2rad(...))``.
@@ -231,7 +268,7 @@ def _parameters(smap, new_observer, kwargs):
     import astropy.units as u
     from sunpy.time import parse_time
 
-    if set(kwargs) - {"model", "frame_time"}:
+    if set(kwargs) - {"model", "frame_time"} or _coordinate_context_active():
         return None
     wcs = _wcs_parameters(smap)
     if wcs is None or not _frames_agree(smap):
@@ -264,8 +301,11 @@ def warp_sun_coordinates(xy, smap, new_observer, **diff_rot_kwargs):
             params = None
         if params is not None:
             wcs, chain = params
-            return _core.warp_sun_coordinates_f64(np.ascontiguousarray(xy, dtype=np.float64), wcs, chain)
-    return _original()(xy, smap, new_observer, **diff_rot_kwargs)
+            try:
+                return _core.warp_sun_coordinates_f64(np.ascontiguousarray(xy, dtype=np.float64), wcs, chain)
+            except ValueError:
+                pass
+    return _fallback()(xy, smap, new_observer, **diff_rot_kwargs)
 
 
 warp_sun_coordinates._heliox_rs = True
@@ -276,14 +316,15 @@ def rust_inverse_map():
     """Use the Rust inverse map inside sunpy's ``differential_rotate`` for the duration of the block.
 
     A lock and a depth count make overlapping uses from several threads safe. The first thread to
-    enter installs the Rust function and the last one to leave puts back the true original, which
-    was saved once when this module was imported.
+    enter saves sunpy's current function and installs the Rust one, and the last one to leave puts
+    back what was saved, which is the true original unless the user had patched it.
     """
-    global _DEPTH
+    global _DEPTH, _SAVED
     module = _sunpy_module()
-    original = _original()
+    _original()
     with _LOCK:
         if _DEPTH == 0:
+            _SAVED = module._warp_sun_coordinates
             module._warp_sun_coordinates = warp_sun_coordinates
         _DEPTH += 1
     try:
@@ -292,7 +333,8 @@ def rust_inverse_map():
         with _LOCK:
             _DEPTH -= 1
             if _DEPTH == 0:
-                module._warp_sun_coordinates = original
+                module._warp_sun_coordinates = _SAVED
+                _SAVED = None
 
 
 def differential_rotate(smap, observer=None, time=None, **diff_rot_kwargs):
