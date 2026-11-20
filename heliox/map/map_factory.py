@@ -8,7 +8,6 @@ recognises the metadata, so that an AIA file comes back as an
 `~heliox.map.sources.AIAMap` with AIA-specific colour tables and behaviour.
 """
 
-import glob
 import os
 from pathlib import Path
 
@@ -16,6 +15,7 @@ import numpy as np
 
 from astropy.io import fits
 
+from heliox._core import maps as _core_maps
 from heliox.io.file_tools import read_file
 from heliox.map.mapbase import GenericMap
 from heliox.util.exceptions import NoMapsInFileError
@@ -124,16 +124,17 @@ class MapFactory:
     def _parse_path(self, path, **kwargs):
         """Expand a filename, glob or directory into ``(data, header)`` pairs."""
         path = Path(path)
+        kind = _core_maps.path_kind(str(path))
 
-        if path.is_dir():
-            files = sorted(str(candidate) for candidate in path.iterdir() if candidate.is_file())
-        elif any(character in str(path) for character in "*?[") and not path.exists():
-            files = sorted(glob.glob(str(path)))
+        if kind == "directory":
+            files = [str(path / name) for name in _core_maps.directory_files(str(path))]
+        elif kind == "pattern":
+            files = _core_maps.glob_paths(str(path))
             if not files:
                 raise ValueError(f"The pattern {str(path)!r} matched no files.")
+        elif kind == "missing":
+            raise FileNotFoundError(f"No such file: {path}")
         else:
-            if not path.exists():
-                raise FileNotFoundError(f"No such file: {path}")
             files = [str(path)]
 
         pairs = []

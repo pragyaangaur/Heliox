@@ -12,6 +12,7 @@ import numpy as np
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 
+from heliox._core.physics import sample_at_pixels
 from heliox.coordinates import (
     HeliocentricInertial,
     HeliographicStonyhurst,
@@ -214,8 +215,6 @@ def differential_rotate(smap, *, observer=None, time=None, model="howard", **kwa
     >>> later.date.isot
     '2013-10-28T18:00:00.000'
     """
-    from scipy.ndimage import map_coordinates
-
     if observer is None and time is None:
         raise ValueError("Give either a target time or an observer.")
 
@@ -249,26 +248,6 @@ def differential_rotate(smap, *, observer=None, time=None, model="howard", **kwa
         source = source.transform_to(smap.coordinate_frame)
         x, y = smap.world_to_pixel(source)
 
-    x = x.to_value(u.pix)
-    y = y.to_value(u.pix)
-    valid = np.isfinite(x) & np.isfinite(y)
-
-    data = np.full(smap.data.shape, np.nan)
-    if np.any(valid):
-        sampled = map_coordinates(
-            np.nan_to_num(smap.data.astype(float)),
-            np.array([np.where(valid, y, 0), np.where(valid, x, 0)]),
-            order=1,
-            mode="constant",
-            cval=np.nan,
-        )
-        inside = (
-            valid
-            & (x >= -0.5)
-            & (x <= smap.data.shape[1] - 0.5)
-            & (y >= -0.5)
-            & (y <= smap.data.shape[0] - 0.5)
-        )
-        data[inside] = sampled[inside]
+    data = sample_at_pixels(smap.data.astype(float), x.to_value(u.pix), y.to_value(u.pix))
 
     return smap._new_instance(data=data, meta=output_meta)

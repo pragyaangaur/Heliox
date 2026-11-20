@@ -205,3 +205,10 @@ def test_differential_rotate_observer_needs_obstime(small_map):
 
 def test_differential_rotate_preserves_the_class(small_map):
     assert type(differential_rotate(small_map, time=START)) is type(small_map)
+
+
+def test_empty_pixel_grid_gives_an_empty_result():
+    from heliox._core.physics import sample_at_pixels
+
+    empty = np.zeros((0, 3))
+    assert sample_at_pixels(empty, empty, empty).shape == (0, 3)

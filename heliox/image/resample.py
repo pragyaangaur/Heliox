@@ -3,6 +3,8 @@
 import numpy as np
 from scipy.ndimage import map_coordinates
 
+from heliox._core.image import resample as _resample
+
 __all__ = ["resample", "reshape_image_to_4d_superpixel"]
 
 _METHODS = ("neighbor", "nearest", "linear", "spline")
@@ -65,6 +67,18 @@ def resample(image, dimensions, method="linear", center=False, minusone=False):
     if method not in _METHODS:
         raise ValueError(f"Unknown method {method!r}. Choose from {_METHODS}.")
 
+    if image.size == 0:
+        return _resample_empty(image, dimensions, method, center, minusone)
+    return _resample(image, dimensions, method, center, minusone)
+
+
+def _resample_empty(image, dimensions, method, center, minusone):
+    """
+    Resample an image with no pixels, as the original numpy and scipy code did.
+
+    An empty image has no values to interpolate, so this path only has to
+    reproduce what the array routines return or raise for it.
+    """
     old = np.array(image.shape, dtype=float)
     new = np.array(dimensions, dtype=float)
 

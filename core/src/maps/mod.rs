@@ -6,10 +6,13 @@
 //! `geometry` holds the pixel arithmetic of submaps, resampling and superpixels.
 
 mod disk;
+mod factory;
 mod format;
 mod geometry;
 mod grid;
 mod meta;
+mod sequence;
+mod sources;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -45,5 +48,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     format::register(&module)?;
     meta::register(&module)?;
     geometry::register(&module)?;
+    sources::register(&module)?;
     Ok(())
 }

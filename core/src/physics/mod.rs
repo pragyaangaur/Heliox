@@ -1,6 +1,9 @@
 //! The `physics` submodule of `heliox._core`.
 //!
-//! Add new functions to this folder and register each one in `register`.
+//! The per-pixel work of differential rotation: sampling a map at the source
+//! pixels of a rotated grid.
+
+mod differential;
 
 use pyo3::prelude::*;
 
@@ -15,5 +18,6 @@ fn _ping() -> &'static str {
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "physics")?;
     module.add_function(wrap_pyfunction!(_ping, &module)?)?;
+    module.add_function(wrap_pyfunction!(differential::sample_at_pixels, &module)?)?;
     Ok(())
 }
