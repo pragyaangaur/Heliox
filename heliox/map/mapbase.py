@@ -18,6 +18,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 
+from heliox._core import maps as _core_maps
 from heliox.coordinates import (
     HeliographicCarrington,
     HeliographicStonyhurst,
@@ -108,7 +109,7 @@ class GenericMap:
 
     def _validate_meta(self):
         """Check that the metadata is usable, and complain clearly if it is not."""
-        missing = sorted(key for key in self._required_keywords if key not in self._meta)
+        missing = _core_maps.missing_keywords(self._meta, list(self._required_keywords))
         if missing:
             raise MapMetaValidationError(
                 "This header is missing the keywords "
@@ -123,20 +124,28 @@ class GenericMap:
 
     def _fix_missing_units(self):
         """Fill in axis units that the header left out, warning when we guess."""
-        for axis in (1, 2):
-            key = f"cunit{axis}"
-            if key not in self._meta:
-                default = "deg" if self._is_heliographic() else "arcsec"
-                warnings.warn(
-                    f"Missing metadata for {key.upper()}: assuming {default}.",
-                    HelioxMetadataWarning,
-                    stacklevel=4,
-                )
-                self._meta[key] = default
+        for key in _core_maps.missing_keywords(self._meta, ["cunit1", "cunit2"]):
+            default = "deg" if self._is_heliographic() else "arcsec"
+            warnings.warn(
+                f"Missing metadata for {key.upper()}: assuming {default}.",
+                HelioxMetadataWarning,
+                stacklevel=4,
+            )
+            self._meta[key] = default
 
     def _is_heliographic(self):
-        ctype = str(self._meta.get("ctype1", "")).upper()
-        return ctype.startswith(("HGLN", "CRLN"))
+        frame = _core_maps.frame_kind(str(self._meta.get("ctype1", "")))
+        return frame in ("stonyhurst", "carrington")
+
+    def _header_float(self, keys, unit):
+        """The first of ``keys`` that the header holds, as a quantity in ``unit``, or `None`."""
+        value = _core_maps.first_float(self._meta, list(keys))
+        return None if value is None else value * unit
+
+    def _header_time(self, keys):
+        """The time in the first of ``keys`` that the header holds with a value, or `None`."""
+        key = _core_maps.first_truthy_key(self._meta, list(keys))
+        return None if key is None else parse_time(self._meta[key])
 
     def _default_plot_settings(self):
         """Plot settings inferred from the metadata; subclasses override this."""
@@ -241,10 +250,7 @@ class GenericMap:
     @property
     def exposure_time(self):
         """The exposure time, or `None` if the header does not give one."""
-        for key in ("exptime", "xposure"):
-            if key in self._meta:
-                return float(self._meta[key]) * u.s
-        return None
+        return self._header_float(("exptime", "xposure"), u.s)
 
     @property
     def waveunit(self):
@@ -274,7 +280,7 @@ class GenericMap:
         """A human readable one-line description of the observation."""
         measurement = self.measurement
         if isinstance(measurement, u.Quantity):
-            measurement = f"{measurement.value:g} {measurement.unit}"
+            measurement = f"{_core_maps.format_general(measurement.value, 6)} {measurement.unit}"
         parts = [part for part in (self.observatory, self.detector) if part]
         label = " ".join(parts) or self.instrument or "Unknown"
         return f"{label} {measurement} {self.date}".replace("  ", " ").strip()
@@ -310,9 +316,9 @@ class GenericMap:
         that is what the coordinates are really valid for, and falls back to
         the start of the exposure.
         """
-        for key in ("date-avg", "date_avg", "date-obs", "date_obs", "t_obs"):
-            if key in self._meta and self._meta[key]:
-                return parse_time(self._meta[key])
+        time = self._header_time(("date-avg", "date_avg", "date-obs", "date_obs", "t_obs"))
+        if time is not None:
+            return time
         warnings.warn(
             "This header records no observation date; assuming the current time.",
             HelioxMetadataWarning,
@@ -323,17 +329,14 @@ class GenericMap:
     @property
     def date_start(self):
         """The start of the exposure, if the header records one."""
-        for key in ("date-beg", "date-obs", "date_obs"):
-            if key in self._meta and self._meta[key]:
-                return parse_time(self._meta[key])
-        return None
+        return self._header_time(("date-beg", "date-obs", "date_obs"))
 
     @property
     def date_end(self):
         """The end of the exposure, computed from the start and the exposure time."""
-        for key in ("date-end", "date_end"):
-            if key in self._meta and self._meta[key]:
-                return parse_time(self._meta[key])
+        end = self._header_time(("date-end", "date_end"))
+        if end is not None:
+            return end
         start, exposure = self.date_start, self.exposure_time
         if start is not None and exposure is not None:
             return start + exposure
@@ -345,40 +348,41 @@ class GenericMap:
     @property
     def dsun(self):
         """The distance from the observer to the centre of the Sun."""
-        if "dsun_obs" in self._meta:
-            return float(self._meta["dsun_obs"]) * u.m
+        distance = self._header_float(("dsun_obs",), u.m)
+        if distance is not None:
+            return distance
         return get_earth(self.date).radius.to(u.m)
 
     @property
     def rsun_meters(self):
         """The solar radius assumed by the metadata."""
-        if "rsun_ref" in self._meta:
-            return float(self._meta["rsun_ref"]) * u.m
+        radius = self._header_float(("rsun_ref",), u.m)
+        if radius is not None:
+            return radius
         return constants.radius.to(u.m)
 
     @property
     def rsun_obs(self):
         """The angular radius of the Sun as seen by the observer."""
-        if "rsun_obs" in self._meta:
-            return float(self._meta["rsun_obs"]) * u.arcsec
-        for key in ("solar_r", "radius"):
-            if key in self._meta:
-                return float(self._meta[key]) * u.arcsec
+        radius = self._header_float(("rsun_obs", "solar_r", "radius"), u.arcsec)
+        if radius is not None:
+            return radius
         return np.arcsin(self.rsun_meters / self.dsun).to(u.arcsec)
 
     @property
     def heliographic_latitude(self):
         """The observer's heliographic latitude, the ``B0`` angle."""
-        for key in ("hglt_obs", "crlt_obs", "solar_b0"):
-            if key in self._meta:
-                return float(self._meta[key]) * u.deg
+        latitude = self._header_float(("hglt_obs", "crlt_obs", "solar_b0"), u.deg)
+        if latitude is not None:
+            return latitude
         return get_earth(self.date).lat.to(u.deg)
 
     @property
     def heliographic_longitude(self):
         """The observer's Stonyhurst heliographic longitude."""
-        if "hgln_obs" in self._meta:
-            return float(self._meta["hgln_obs"]) * u.deg
+        longitude = self._header_float(("hgln_obs",), u.deg)
+        if longitude is not None:
+            return longitude
         if "crln_obs" in self._meta:
             return self.observer_coordinate.lon.to(u.deg)
         return 0 * u.deg
@@ -386,8 +390,9 @@ class GenericMap:
     @property
     def carrington_longitude(self):
         """The observer's Carrington longitude, the ``L0`` angle."""
-        if "crln_obs" in self._meta:
-            return float(self._meta["crln_obs"]) * u.deg
+        longitude = self._header_float(("crln_obs",), u.deg)
+        if longitude is not None:
+            return longitude
         return self.observer_coordinate.transform_to(
             HeliographicCarrington(obstime=self.date, observer="earth")
         ).lon.to(u.deg)
@@ -400,14 +405,15 @@ class GenericMap:
         Built from the header keywords if they are present, and from the
         Earth's position at `date` if they are not.
         """
-        if "hgln_obs" in self._meta and "hglt_obs" in self._meta:
+        source = _core_maps.observer_source(self._meta)
+        if source == "stonyhurst":
             return HeliographicStonyhurst(
                 float(self._meta["hgln_obs"]) * u.deg,
                 float(self._meta["hglt_obs"]) * u.deg,
                 self.dsun,
                 obstime=self.date,
             )
-        if "crln_obs" in self._meta and "crlt_obs" in self._meta:
+        if source == "carrington":
             carrington = HeliographicCarrington(
                 float(self._meta["crln_obs"]) * u.deg,
                 float(self._meta["crlt_obs"]) * u.deg,
@@ -429,7 +435,7 @@ class GenericMap:
         FITS counts pixels from one and heliox counts from zero, so this is
         ``CRPIX - 1``.
         """
-        return u.Quantity([float(self._meta["crpix1"]) - 1, float(self._meta["crpix2"]) - 1], u.pix)
+        return u.Quantity(_core_maps.reference_pixel(self._meta), u.pix)
 
     @property
     def reference_coordinate(self):
@@ -466,33 +472,7 @@ class GenericMap:
         Reads whichever of ``PCi_j``, ``CDi_j`` or ``CROTA2`` the header
         provides, in that order of preference, and falls back to the identity.
         """
-        meta = self._meta
-        if "pc1_1" in meta:
-            return np.array(
-                [
-                    [float(meta.get("pc1_1", 1)), float(meta.get("pc1_2", 0))],
-                    [float(meta.get("pc2_1", 0)), float(meta.get("pc2_2", 1))],
-                ]
-            )
-        if "cd1_1" in meta:
-            cd = np.array(
-                [
-                    [float(meta.get("cd1_1", 0)), float(meta.get("cd1_2", 0))],
-                    [float(meta.get("cd2_1", 0)), float(meta.get("cd2_2", 0))],
-                ]
-            )
-            # CD folds the scale in with the rotation, so divide it back out.
-            cdelt = np.array([float(meta["cdelt1"]), float(meta["cdelt2"])])
-            return cd / cdelt[:, np.newaxis]
-        if "crota2" in meta:
-            return self._rotation_matrix_from_angle(float(meta["crota2"]) * u.deg)
-        return np.identity(2)
-
-    @staticmethod
-    def _rotation_matrix_from_angle(angle):
-        """A rotation matrix in the FITS ``CROTA2`` convention."""
-        cos, sin = np.cos(angle).value, np.sin(angle).value
-        return np.array([[cos, -sin], [sin, cos]])
+        return _core_maps.rotation_matrix(self._meta)
 
     @property
     def rotation_angle(self):
@@ -501,8 +481,7 @@ class GenericMap:
 
         Zero means the image is already aligned with solar north.
         """
-        matrix = self.rotation_matrix
-        return (np.arctan2(matrix[1, 0], matrix[1, 1]) * u.rad).to(u.deg)
+        return u.Quantity(_core_maps.rotation_angle(self.rotation_matrix), u.deg)
 
     @property
     def coordinate_system(self):
@@ -522,15 +501,16 @@ class GenericMap:
         another's frame.
         """
         ctype = self.coordinate_system.axis1.upper()
-        if ctype.startswith("HPLN"):
+        frame = _core_maps.frame_kind(ctype)
+        if frame == "helioprojective":
             return Helioprojective(
                 obstime=self.date,
                 observer=self.observer_coordinate,
                 rsun=self.rsun_meters,
             )
-        if ctype.startswith("HGLN"):
+        if frame == "stonyhurst":
             return HeliographicStonyhurst(obstime=self.date)
-        if ctype.startswith("CRLN"):
+        if frame == "carrington":
             return HeliographicCarrington(obstime=self.date, observer=self.observer_coordinate)
         raise MapMetaValidationError(
             f"heliox does not know what coordinate frame {ctype!r} describes."
@@ -698,23 +678,9 @@ class GenericMap:
         (100, 100)
         """
         (x0, y0), (x1, y1) = self._pixel_corners(bottom_left, top_right, width, height)
-
-        # Order the corners, then widen to whole pixels so nothing is lost.
-        left, right = sorted((x0, x1))
-        lower, upper = sorted((y0, y1))
-        left = int(np.floor(left + 0.5))
-        lower = int(np.floor(lower + 0.5))
-        right = int(np.ceil(right - 0.5)) + 1
-        upper = int(np.ceil(upper - 0.5)) + 1
-
-        left = max(left, 0)
-        lower = max(lower, 0)
-        right = min(right, self._data.shape[1])
-        upper = min(upper, self._data.shape[0])
-
-        if right <= left or upper <= lower:
-            raise ValueError("The requested region does not overlap the map.")
-
+        left, lower, right, upper = _core_maps.submap_bounds(
+            x0, y0, x1, y1, self._data.shape[1], self._data.shape[0]
+        )
         data = self._data[lower:upper, left:right]
         meta = MetaDict(self._meta)
         meta["crpix1"] = float(self._meta["crpix1"]) - left
@@ -760,23 +726,22 @@ class GenericMap:
         from heliox.image.resample import resample as _resample
 
         dimensions = u.Quantity(dimensions, u.pix).to_value(u.pix)
-        if len(dimensions) != 2:
-            raise ValueError("Give the output size as two numbers, (x, y).")
-        new_x, new_y = int(dimensions[0]), int(dimensions[1])
+        new_x, new_y = _core_maps.output_size(dimensions)
 
         # heliox.image.resample takes numpy axis order.
         data = _resample(self._data, (new_y, new_x), method=method, center=True)
 
         old_x, old_y = self._data.shape[1], self._data.shape[0]
-        scale_x, scale_y = new_x / old_x, new_y / old_y
+        (cdelt1, cdelt2), (crpix1, crpix2) = _core_maps.resampled_header(
+            (float(self._meta["cdelt1"]), float(self._meta["cdelt2"])),
+            (float(self._meta["crpix1"]), float(self._meta["crpix2"])),
+            (old_x, old_y),
+            (new_x, new_y),
+        )
 
         meta = MetaDict(self._meta)
-        meta["cdelt1"] = float(self._meta["cdelt1"]) / scale_x
-        meta["cdelt2"] = float(self._meta["cdelt2"]) / scale_y
-        # Map the reference pixel through the same resampling, remembering that
-        # a FITS pixel spans from p - 0.5 to p + 0.5.
-        meta["crpix1"] = (float(self._meta["crpix1"]) - 0.5) * scale_x + 0.5
-        meta["crpix2"] = (float(self._meta["crpix2"]) - 0.5) * scale_y + 0.5
+        meta["cdelt1"], meta["cdelt2"] = cdelt1, cdelt2
+        meta["crpix1"], meta["crpix2"] = crpix1, crpix2
         meta["naxis1"] = new_x
         meta["naxis2"] = new_y
         return self._new_instance(data=data, meta=meta)
@@ -827,30 +792,25 @@ class GenericMap:
         """
         from heliox.image.resample import reshape_image_to_4d_superpixel
 
-        dimensions = u.Quantity(dimensions, u.pix).to_value(u.pix).astype(int)
-        offset = u.Quantity(offset, u.pix).to_value(u.pix).astype(int)
-        if len(dimensions) != 2 or len(offset) != 2:
-            raise ValueError("Give both the block size and the offset as (x, y).")
-        if np.any(dimensions < 1):
-            raise ValueError("Each block must be at least one pixel across.")
-        if np.any(offset < 0):
-            raise ValueError("The offset cannot be negative.")
-
-        block_x, block_y = int(dimensions[0]), int(dimensions[1])
-        offset_x, offset_y = int(offset[0]), int(offset[1])
+        dimensions = u.Quantity(dimensions, u.pix).to_value(u.pix)
+        offset = u.Quantity(offset, u.pix).to_value(u.pix)
+        block_x, block_y, offset_x, offset_y = _core_maps.superpixel_block(dimensions, offset)
 
         blocks = reshape_image_to_4d_superpixel(
             self._data, (block_y, block_x), (offset_y, offset_x)
         )
         data = func(func(blocks, axis=3), axis=1)
 
+        (cdelt1, cdelt2), (crpix1, crpix2) = _core_maps.superpixel_header(
+            (float(self._meta["cdelt1"]), float(self._meta["cdelt2"])),
+            (float(self._meta["crpix1"]), float(self._meta["crpix2"])),
+            (block_x, block_y),
+            (offset_x, offset_y),
+        )
+
         meta = MetaDict(self._meta)
-        meta["cdelt1"] = float(self._meta["cdelt1"]) * block_x
-        meta["cdelt2"] = float(self._meta["cdelt2"]) * block_y
-        # The centre of the first output pixel sits at input pixel
-        # offset + (block + 1) / 2 in FITS one-based coordinates.
-        meta["crpix1"] = (float(self._meta["crpix1"]) - offset_x - (block_x + 1) / 2) / block_x + 1
-        meta["crpix2"] = (float(self._meta["crpix2"]) - offset_y - (block_y + 1) / 2) / block_y + 1
+        meta["cdelt1"], meta["cdelt2"] = cdelt1, cdelt2
+        meta["crpix1"], meta["crpix2"] = crpix1, crpix2
         meta["naxis1"] = data.shape[1]
         meta["naxis2"] = data.shape[0]
         return self._new_instance(data=data, meta=meta)
@@ -914,7 +874,7 @@ class GenericMap:
             raise ValueError("Give either an angle or a rotation matrix, not both.")
 
         cdelt1, cdelt2 = float(self._meta["cdelt1"]), float(self._meta["cdelt2"])
-        if not np.isclose(abs(cdelt1), abs(cdelt2), rtol=1e-6):
+        if not _core_maps.square_pixels(cdelt1, cdelt2):
             raise ValueError(
                 "rotate needs square pixels, but this map has different plate "
                 f"scales on its two axes ({cdelt1} and {cdelt2}). Resample it first."
@@ -943,7 +903,7 @@ class GenericMap:
         meta = MetaDict(self._meta)
         # Rotating the pixels by R means the world axes are reached through the
         # inverse rotation, so the PC matrix picks up R inverse.
-        new_pc = self.rotation_matrix @ np.linalg.inv(rmatrix)
+        new_pc = _core_maps.rotated_pc(self.rotation_matrix, rmatrix)
         meta["pc1_1"], meta["pc1_2"] = float(new_pc[0, 0]), float(new_pc[0, 1])
         meta["pc2_1"], meta["pc2_2"] = float(new_pc[1, 0]), float(new_pc[1, 1])
         # PC now carries the whole rotation, so any older representation of it
@@ -955,8 +915,9 @@ class GenericMap:
         meta["cdelt2"] = cdelt2 / scale
 
         if recenter:
-            meta["crpix1"] = (self._data.shape[1] + 1) / 2
-            meta["crpix2"] = (self._data.shape[0] + 1) / 2
+            meta["crpix1"], meta["crpix2"] = _core_maps.recentered_reference(
+                self._data.shape[1], self._data.shape[0]
+            )
 
         return self._new_instance(data=data, meta=meta)
 
@@ -1060,13 +1021,9 @@ class GenericMap:
         settings.update(imshow_kwargs)
 
         if clip_interval is not None:
-            clip = u.Quantity(clip_interval, u.percent).to_value(u.percent)
-            if len(clip) != 2:
-                raise ValueError("clip_interval needs exactly two percentiles.")
-            if not 0 <= clip[0] < clip[1] <= 100:
-                raise ValueError(
-                    "clip_interval must be two increasing percentiles between 0 and 100."
-                )
+            clip = _core_maps.clip_percentiles(
+                u.Quantity(clip_interval, u.percent).to_value(u.percent)
+            )
             vmin, vmax = np.nanpercentile(self._data, clip)
             existing = settings.get("norm")
             stretch = getattr(existing, "stretch", None)
@@ -1089,21 +1046,15 @@ class GenericMap:
         """The title used when a map is plotted without an explicit one."""
         measurement = self.measurement
         if isinstance(measurement, u.Quantity):
-            measurement = f"{measurement.value:g} {measurement.unit}"
+            measurement = f"{_core_maps.format_general(measurement.value, 6)} {measurement.unit}"
         label = self.nickname or self.instrument or "heliox map"
         return f"{label} {measurement} {self.date.utc.isot}".replace("  ", " ").strip()
 
     def _label_axes(self, axes):
         """Label the two axes according to the coordinate system in use."""
-        ctype = self.coordinate_system.axis1.upper()
-        if ctype.startswith("HPLN"):
-            labels = ("Helioprojective longitude (solar-X)", "Helioprojective latitude (solar-Y)")
-        elif ctype.startswith("CRLN"):
-            labels = ("Carrington longitude", "Carrington latitude")
-        else:
-            labels = ("Heliographic longitude", "Heliographic latitude")
-        axes.set_xlabel(labels[0])
-        axes.set_ylabel(labels[1])
+        x_label, y_label = _core_maps.axis_labels(self.coordinate_system.axis1)
+        axes.set_xlabel(x_label)
+        axes.set_ylabel(y_label)
 
     def peek(self, *, figsize=(8, 8), draw_limb=False, draw_grid=False, **kwargs):
         """
@@ -1241,7 +1192,9 @@ class GenericMap:
         axes = axes if axes is not None else self._current_axes()
 
         if isinstance(levels, u.Quantity) and levels.unit == u.percent:
-            levels = np.atleast_1d(levels.to_value(u.percent)) / 100 * self.max()
+            levels = _core_maps.percent_levels(
+                np.atleast_1d(levels.to_value(u.percent)), self.max()
+            )
         elif isinstance(levels, u.Quantity):
             levels = levels.to_value(self.unit) if self.unit else levels.value
         levels = np.atleast_1d(levels)
@@ -1288,6 +1241,8 @@ class GenericMap:
         write(filepath, self._data, self._meta, **kwargs)
 
     def __repr__(self):
+        scale = self.scale
+        reference_x, reference_y = self.reference_pixel.value
         return textwrap.dedent(
             f"""\
             <heliox.map.{type(self).__name__}
@@ -1297,10 +1252,10 @@ class GenericMap:
             Measurement:         {self.measurement}
             Observation date:    {self.date.utc.isot}
             Dimensions:          {self._data.shape[1]} x {self._data.shape[0]} pixels
-            Scale:               {self.scale.axis1.value:.4f} x {self.scale.axis2.value:.4f} {self.scale.axis1.unit}
-            Reference pixel:     {self.reference_pixel.value[0]:.1f}, {self.reference_pixel.value[1]:.1f}
+            Scale:               {_core_maps.format_fixed(scale.axis1.value, 4)} x {_core_maps.format_fixed(scale.axis2.value, 4)} {scale.axis1.unit}
+            Reference pixel:     {_core_maps.format_fixed(reference_x, 1)}, {_core_maps.format_fixed(reference_y, 1)}
             Coordinate system:   {self.coordinate_system.axis1}, {self.coordinate_system.axis2}
-            Data range:          {self.min():.4g} to {self.max():.4g}
+            Data range:          {_core_maps.format_general(self.min(), 4)} to {_core_maps.format_general(self.max(), 4)}
             >"""
         )
 
