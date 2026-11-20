@@ -11,15 +11,9 @@ use pyo3::prelude::*;
 
 use crate::submodule::new_submodule;
 
-#[pyfunction]
-fn _ping() -> &'static str {
-    "image"
-}
-
 /// Creates `heliox._core.image` and adds its functions to it.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "image")?;
-    module.add_function(wrap_pyfunction!(_ping, &module)?)?;
     module.add_function(wrap_pyfunction!(resample::resample, &module)?)?;
     module.add_function(wrap_pyfunction!(transform::affine_transform, &module)?)?;
     Ok(())

@@ -38,7 +38,7 @@ Each submodule lives in its own folder under `src/`. Its code goes in `mod.rs`, 
 
 Open the `mod.rs` for the submodule and write a function with `#[pyfunction]`. Then add it to `register` with `module.add_function(wrap_pyfunction!(name, &module)?)?;`. Python code then calls it as `heliox._core.<name>.<function>`.
 
-Each stub has a `_ping` function. It returns the submodule name, and `heliox/tests/test_core.py` checks it. Remove `_ping` once a submodule has real functions, and update that test to match.
+Every submodule already exposes real functions. `heliox/tests/test_core.py` checks that each submodule imports, is registered in `sys.modules`, and exposes at least one public function.
 
 ## Checks
 

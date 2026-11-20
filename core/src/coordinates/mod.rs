@@ -26,11 +26,6 @@ type Triple<'py> = (Floats<'py>, Floats<'py>, Floats<'py>);
 /// The radius, the two unit vectors and the angle of a great arc.
 type ArcBasisPy<'py> = (f64, Floats<'py>, Floats<'py>, f64);
 
-#[pyfunction]
-fn _ping() -> &'static str {
-    "coordinates"
-}
-
 /// Flattens matrices row by row.
 fn flatten(matrices: impl IntoIterator<Item = Mat3>) -> Vec<f64> {
     matrices
@@ -300,7 +295,6 @@ fn vector_norms<'py>(py: Python<'py>, xyz: PyReadonlyArray1<'py, f64>) -> PyResu
 /// Creates `heliox._core.coordinates` and adds its functions to it.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "coordinates")?;
-    module.add_function(wrap_pyfunction!(_ping, &module)?)?;
     module.add_function(wrap_pyfunction!(solar_pole, &module)?)?;
     module.add_function(wrap_pyfunction!(solar_equator_node, &module)?)?;
     module.add_function(wrap_pyfunction!(prime_meridian_degrees, &module)?)?;

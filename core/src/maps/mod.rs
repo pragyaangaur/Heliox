@@ -19,11 +19,6 @@ use pyo3::prelude::*;
 
 use crate::submodule::new_submodule;
 
-#[pyfunction]
-fn _ping() -> &'static str {
-    "maps"
-}
-
 /// Raises `ValueError` unless two array shapes are equal.
 fn check_same_shape(first: &[usize], second: &[usize]) -> PyResult<()> {
     if first == second {
@@ -38,7 +33,6 @@ fn check_same_shape(first: &[usize], second: &[usize]) -> PyResult<()> {
 /// Creates `heliox._core.maps` and adds its functions to it.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "maps")?;
-    module.add_function(wrap_pyfunction!(_ping, &module)?)?;
     module.add_function(wrap_pyfunction!(grid::pixel_grid, &module)?)?;
     module.add_function(wrap_pyfunction!(grid::edge_pixels, &module)?)?;
     module.add_function(wrap_pyfunction!(grid::inside_pixel_mask, &module)?)?;

@@ -275,15 +275,9 @@ fn sunspot_flux<'py>(
     map1(py, sunspot_number, rotation::sunspot_flux)
 }
 
-#[pyfunction]
-fn _ping() -> &'static str {
-    "sun"
-}
-
 /// Creates `heliox._core.sun` and adds its functions to it.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "sun")?;
-    module.add_function(wrap_pyfunction!(_ping, &module)?)?;
     module.add_function(wrap_pyfunction!(mean_anomaly, &module)?)?;
     module.add_function(wrap_pyfunction!(eccentricity, &module)?)?;
     module.add_function(wrap_pyfunction!(equation_of_centre, &module)?)?;
