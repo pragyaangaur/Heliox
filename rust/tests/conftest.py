@@ -8,11 +8,10 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-asda = pytest.importorskip("sunkit_image.asda")
-pytest.importorskip("skimage")
-
 
 def _load_real():
+    pytest.importorskip("sunkit_image.asda")
+    pytest.importorskip("skimage")
     import sunkit_image
     from astropy.io import fits
 
@@ -31,6 +30,7 @@ def real_field():
 @pytest.fixture(scope="session")
 def real_gamma_original(real_field):
     """The original function on the full real field, run once for the whole session (about 5 s)."""
+    asda = pytest.importorskip("sunkit_image.asda")
     vx, vy, _ = real_field
     return asda.calculate_gamma_values(vx, vy)
 
