@@ -389,6 +389,46 @@ def test_differential_rotate_matches_sunpy_for_float64_data(aia, rust_calls, kwa
     compare_maps(expected, actual, FLOAT64_RTOL)
 
 
+@pytest.mark.parametrize("name", ["time +1h", "time -2d", "earth +3d", "stereo like"])
+def test_float64_image_difference_is_explained_by_the_coordinate_difference(aia, name):
+    """Bilinear interpolation is linear in the sampling point, so moving a sample by `d` pixels
+    changes it by at most `d` times the largest difference between neighbouring source pixels in
+    the cells around it. This bounds the image difference pixel by pixel with the actual coordinate
+    difference, and the ratio of the two is reported as the slack."""
+    from scipy.ndimage import maximum_filter
+
+    smap = sunpy_map.Map(aia.data.astype(np.float64), aia.meta)
+    _, rotation, model = SCENARIOS[name]
+    kwargs = rotation(smap)
+    obs = new_observer(smap, kwargs)
+    rows, cols = smap.data.shape
+    xy = np.indices((cols, rows), dtype=float).reshape(2, -1).T
+    original = dr._warp_sun_coordinates(xy, smap, obs, **model)
+    rust = rs.warp_sun_coordinates(xy, smap, obs, **model)
+    expected = dr.differential_rotate(smap, **kwargs, **model).data
+    actual = rs.differential_rotate(smap, **kwargs, **model).data
+    np.testing.assert_array_equal(np.isnan(actual), np.isnan(expected))
+
+    data = smap.data
+    slope_x = maximum_filter(np.abs(np.diff(data, axis=1)), size=3, mode="nearest")
+    slope_y = maximum_filter(np.abs(np.diff(data, axis=0)), size=3, mode="nearest")
+    # Per output pixel, as arrays indexed [row, column].
+    as_image = lambda column: column.reshape(cols, rows).T  # noqa: E731
+    sx, sy = as_image(original[:, 0]), as_image(original[:, 1])
+    dx = np.abs(as_image(rust[:, 0] - original[:, 0]))
+    dy = np.abs(as_image(rust[:, 1] - original[:, 1]))
+    ok = np.isfinite(sx) & np.isfinite(sy)
+    ix = np.clip(np.floor(sx[ok]).astype(int), 0, cols - 2)
+    iy = np.clip(np.floor(sy[ok]).astype(int), 0, rows - 2)
+    bound = dx[ok] * slope_x[np.minimum(iy, rows - 1), ix] + dy[ok] * slope_y[iy, ix]
+    difference = np.abs(actual - expected)[ok]
+    rounding = FLOAT64_RTOL * np.maximum(np.abs(expected[ok]), 1.0)
+    assert np.all(difference <= bound + rounding), (difference - bound - rounding).max()
+    # The bound is not vacuous: where the coordinates differ by more than 1e-9 pixel the image does
+    # change, so the bound is used.
+    assert difference.max() > 0
+
+
 def test_masked_map_matches_sunpy(aia, rust_calls):
     mask = np.zeros(aia.data.shape, bool)
     mask[100:300, 400:500] = True
