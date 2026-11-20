@@ -3,6 +3,7 @@
 //! The numeric data of the colour tables. The plotting helpers stay in Python.
 
 mod color_tables;
+mod drawing;
 
 use pyo3::prelude::*;
 
@@ -23,5 +24,7 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(color_tables::linear_curve, &module)?)?;
     module.add_function(wrap_pyfunction!(color_tables::bipolar_channels, &module)?)?;
     module.add_function(wrap_pyfunction!(color_tables::segment_data, &module)?)?;
+    module.add_function(wrap_pyfunction!(drawing::grid_paths, &module)?)?;
+    module.add_function(wrap_pyfunction!(drawing::quadrangle_sides, &module)?)?;
     Ok(())
 }
