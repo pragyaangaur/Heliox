@@ -20,6 +20,7 @@ frame that needs neither an observer nor a choice of rotating grid.
 
 import numpy as np
 
+import astropy.units as u
 from astropy.coordinates import HCRS, ConvertError, frame_transform_graph
 from astropy.coordinates.matrix_utilities import matrix_transpose
 from astropy.coordinates.representation import (
@@ -31,10 +32,14 @@ from astropy.coordinates.transformations import (
     FunctionTransform,
 )
 
+from heliox._core import coordinates as _rust
 from heliox.coordinates._attributes import _resolve_observer
 from heliox.coordinates._matrices import (
+    _flat,
+    _stack,
     carrington_matrix,
     inertial_matrix,
+    matrix_product,
     stonyhurst_matrix,
 )
 from heliox.coordinates.frames import (
@@ -144,8 +149,9 @@ def hgs_to_hgs(from_frame, to_frame):
     """
     if to_frame.obstime is None or from_frame.obstime is None:
         return np.eye(3)
-    return stonyhurst_matrix(to_frame.obstime) @ matrix_transpose(
-        stonyhurst_matrix(from_frame.obstime)
+    return matrix_product(
+        stonyhurst_matrix(to_frame.obstime),
+        matrix_transpose(stonyhurst_matrix(from_frame.obstime)),
     )
 
 
@@ -159,8 +165,9 @@ def hgs_to_hgc(hgs_frame, hgc_frame):
     """Rotate from the Earth-facing meridian to the Sun's own rotating grid."""
     obstime = _require_obstime(hgc_frame, "HeliographicCarrington")
     distance = _observer_light_travel_distance(hgc_frame)
-    return carrington_matrix(obstime, distance) @ matrix_transpose(
-        stonyhurst_matrix(_require_obstime(hgs_frame, "HeliographicStonyhurst"))
+    return matrix_product(
+        carrington_matrix(obstime, distance),
+        matrix_transpose(stonyhurst_matrix(_require_obstime(hgs_frame, "HeliographicStonyhurst"))),
     )
 
 
@@ -171,9 +178,10 @@ def hgc_to_hgs(hgc_frame, hgs_frame):
     """Rotate from the Sun's rotating grid back to the Earth-facing meridian."""
     obstime = _require_obstime(hgc_frame, "HeliographicCarrington")
     distance = _observer_light_travel_distance(hgc_frame)
-    return stonyhurst_matrix(
-        _require_obstime(hgs_frame, "HeliographicStonyhurst")
-    ) @ matrix_transpose(carrington_matrix(obstime, distance))
+    return matrix_product(
+        stonyhurst_matrix(_require_obstime(hgs_frame, "HeliographicStonyhurst")),
+        matrix_transpose(carrington_matrix(obstime, distance)),
+    )
 
 
 @frame_transform_graph.transform(
@@ -181,14 +189,17 @@ def hgc_to_hgs(hgc_frame, hgs_frame):
 )
 def hgc_to_hgc(from_frame, to_frame):
     """Re-reference a Carrington coordinate to a different time or observer."""
-    return carrington_matrix(
-        _require_obstime(to_frame, "HeliographicCarrington"),
-        _observer_light_travel_distance(to_frame),
-    ) @ matrix_transpose(
+    return matrix_product(
         carrington_matrix(
-            _require_obstime(from_frame, "HeliographicCarrington"),
-            _observer_light_travel_distance(from_frame),
-        )
+            _require_obstime(to_frame, "HeliographicCarrington"),
+            _observer_light_travel_distance(to_frame),
+        ),
+        matrix_transpose(
+            carrington_matrix(
+                _require_obstime(from_frame, "HeliographicCarrington"),
+                _observer_light_travel_distance(from_frame),
+            )
+        ),
     )
 
 
@@ -201,8 +212,9 @@ def hgc_to_hgc(from_frame, to_frame):
 def hgs_to_hci(hgs_frame, hci_frame):
     """Rotate from Stonyhurst heliographic axes into the inertial solar frame."""
     obstime = _require_obstime(hci_frame, "HeliocentricInertial")
-    return inertial_matrix(obstime) @ matrix_transpose(
-        stonyhurst_matrix(_require_obstime(hgs_frame, "HeliographicStonyhurst"))
+    return matrix_product(
+        inertial_matrix(obstime),
+        matrix_transpose(stonyhurst_matrix(_require_obstime(hgs_frame, "HeliographicStonyhurst"))),
     )
 
 
@@ -212,9 +224,10 @@ def hgs_to_hci(hgs_frame, hci_frame):
 def hci_to_hgs(hci_frame, hgs_frame):
     """Rotate from the inertial solar frame into Stonyhurst heliographic axes."""
     obstime = _require_obstime(hci_frame, "HeliocentricInertial")
-    return stonyhurst_matrix(
-        _require_obstime(hgs_frame, "HeliographicStonyhurst")
-    ) @ matrix_transpose(inertial_matrix(obstime))
+    return matrix_product(
+        stonyhurst_matrix(_require_obstime(hgs_frame, "HeliographicStonyhurst")),
+        matrix_transpose(inertial_matrix(obstime)),
+    )
 
 
 @frame_transform_graph.transform(DynamicMatrixTransform, HeliocentricInertial, HeliocentricInertial)
@@ -241,21 +254,8 @@ def _heliocentric_matrix(observer):
     north projected perpendicular to it.
     """
     spherical = observer.spherical
-    lon, lat = spherical.lon, spherical.lat
-    z_hat = np.stack(
-        [
-            (np.cos(lat) * np.cos(lon)).value,
-            (np.cos(lat) * np.sin(lon)).value,
-            np.sin(lat).value,
-        ],
-        axis=-1,
-    )
-    pole = np.broadcast_to(np.array([0.0, 0.0, 1.0]), z_hat.shape)
-    along = np.sum(pole * z_hat, axis=-1, keepdims=True) * z_hat
-    y_hat = pole - along
-    y_hat = y_hat / np.linalg.norm(y_hat, axis=-1, keepdims=True)
-    x_hat = np.cross(y_hat, z_hat)
-    return np.stack([x_hat, y_hat, z_hat], axis=-2)
+    lon, lat = np.broadcast_arrays(spherical.lon.to_value(u.rad), spherical.lat.to_value(u.rad))
+    return _stack(_rust.heliocentric_matrices(_flat(lon), _flat(lat)), lon.shape)
 
 
 @frame_transform_graph.transform(FunctionTransform, HeliographicStonyhurst, Heliocentric)
@@ -294,7 +294,10 @@ def hcc_to_hcc(from_frame, to_frame):
     """Re-reference a heliocentric coordinate to a different observer."""
     from_observer = _require_observer(from_frame, "Heliocentric")
     to_observer = _require_observer(to_frame, "Heliocentric")
-    return _heliocentric_matrix(to_observer) @ matrix_transpose(_heliocentric_matrix(from_observer))
+    return matrix_product(
+        _heliocentric_matrix(to_observer),
+        matrix_transpose(_heliocentric_matrix(from_observer)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -322,18 +325,24 @@ def hcc_to_hpc(hcc_coord, hpc_frame):
             Heliocentric(observer=observer, obstime=hpc_frame.obstime or hcc_coord.obstime)
         )
 
-    distance_to_sun = observer.radius
     cartesian = hcc_coord.cartesian
-    x, y, z = cartesian.x, cartesian.y, cartesian.z
+    unit = cartesian.x.unit
+    x, y, z, distance_to_sun = np.broadcast_arrays(
+        cartesian.x.value,
+        cartesian.y.to_value(unit),
+        cartesian.z.to_value(unit),
+        observer.radius.to_value(unit),
+    )
+    tx, ty, distance = _rust.heliocentric_to_helioprojective(
+        _flat(x), _flat(y), _flat(z), _flat(distance_to_sun)
+    )
 
-    # Vector from the observer to the point, in heliocentric axes.
-    along_line_of_sight = distance_to_sun - z
-    distance = np.sqrt(x**2 + y**2 + along_line_of_sight**2)
-
-    tx = np.arctan2(x, along_line_of_sight)
-    ty = np.arcsin(y / distance)
-
-    representation = SphericalRepresentation(lon=tx, lat=ty, distance=distance)
+    shape = x.shape
+    representation = SphericalRepresentation(
+        lon=tx.reshape(shape) * u.rad,
+        lat=ty.reshape(shape) * u.rad,
+        distance=distance.reshape(shape) * unit,
+    )
     return hpc_frame.realize_frame(representation)
 
 
@@ -353,16 +362,24 @@ def hpc_to_hcc(hpc_coord, hcc_frame):
     # they were measured from, and only then rotate into the requested
     # heliocentric axes.
     source_observer = _require_observer(hpc_coord, "Helioprojective")
-    distance_to_sun = source_observer.radius
 
     spherical = hpc_coord.represent_as(SphericalRepresentation)
-    tx, ty, distance = spherical.lon, spherical.lat, spherical.distance
+    distance = spherical.distance
+    unit = distance.unit
+    tx, ty, dist, distance_to_sun = np.broadcast_arrays(
+        spherical.lon.to_value(u.rad),
+        spherical.lat.to_value(u.rad),
+        distance.value,
+        source_observer.radius.to_value(unit),
+    )
+    x, y, z = _rust.helioprojective_to_heliocentric(
+        _flat(tx), _flat(ty), _flat(dist), _flat(distance_to_sun)
+    )
 
-    x = distance * np.cos(ty) * np.sin(tx)
-    y = distance * np.sin(ty)
-    z = distance_to_sun - distance * np.cos(ty) * np.cos(tx)
-
-    cartesian = CartesianRepresentation(x=x, y=y, z=z)
+    shape = tx.shape
+    cartesian = CartesianRepresentation(
+        x=x.reshape(shape) * unit, y=y.reshape(shape) * unit, z=z.reshape(shape) * unit
+    )
     if _same_observer(hpc_coord.observer, hcc_frame.observer):
         return hcc_frame.realize_frame(cartesian)
 
