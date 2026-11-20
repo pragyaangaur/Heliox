@@ -1,11 +1,11 @@
 """Map sources for the instruments on the Solar Dynamics Observatory."""
 
-import numpy as np
-
 import astropy.units as u
 from astropy.visualization import AsinhStretch, ImageNormalize
 
+from heliox._core import maps as _core_maps
 from heliox.map.mapbase import GenericMap
+from heliox.map.sources._samples import samples
 from heliox.visualization.color_tables import aia_color_table, hmi_mag_color_table
 
 __all__ = ["AIAMap", "HMIMap"]
@@ -65,19 +65,16 @@ class AIAMap(GenericMap):
         and like a linear scale where it is faint, which keeps both the loops
         and the quiet corona visible in one frame.
         """
-        finite = self.data[np.isfinite(self.data)]
-        if finite.size == 0:
+        limits = _core_maps.aia_display_limits(*samples(self.data))
+        if limits is None:
             return None
-        vmin = max(float(np.nanpercentile(finite, 1.0)), 0.0)
-        vmax = float(np.nanpercentile(finite, 99.9))
-        if vmin >= vmax:
-            return None
+        vmin, vmax = limits
         return ImageNormalize(vmin=vmin, vmax=vmax, stretch=AsinhStretch(0.02))
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
         """Recognise an AIA image from its ``INSTRUME`` keyword."""
-        return str(header.get("instrume", "")).upper().startswith("AIA")
+        return _core_maps.instrument_matches(str(header.get("instrume", "")), "AIA")
 
 
 class HMIMap(GenericMap):
@@ -104,11 +101,7 @@ class HMIMap(GenericMap):
     @property
     def measurement(self):
         """The data product this file holds, taken from ``CONTENT``."""
-        content = str(self.meta.get("content", "")).lower()
-        for product in ("magnetogram", "dopplergram", "continuum", "linedepth"):
-            if product in content.replace(" ", ""):
-                return product
-        return "continuum" if "intensity" in content else content or "hmi"
+        return _core_maps.hmi_measurement(str(self.meta.get("content", "")))
 
     @property
     def is_magnetogram(self):
@@ -119,7 +112,7 @@ class HMIMap(GenericMap):
         if self.is_magnetogram:
             # Magnetograms are signed, so the scale must be symmetric about
             # zero or the two polarities look different.
-            limit = float(np.nanpercentile(np.abs(self.data), 99.5)) or 1.0
+            limit = _core_maps.magnetogram_limit(*samples(self.data))
             return {
                 "cmap": hmi_mag_color_table(),
                 "norm": ImageNormalize(vmin=-limit, vmax=limit),
@@ -129,4 +122,4 @@ class HMIMap(GenericMap):
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
         """Recognise an HMI image from its ``INSTRUME`` keyword."""
-        return str(header.get("instrume", "")).upper().startswith("HMI")
+        return _core_maps.instrument_matches(str(header.get("instrume", "")), "HMI")
