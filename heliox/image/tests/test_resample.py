@@ -114,3 +114,14 @@ def test_resampling_agrees_with_scipy_map_coordinates(method, order):
     coordinates = [scale[axis] * grids[axis] for axis in range(2)]
     expected = map_coordinates(image, coordinates, order=order, mode="nearest")
     assert np.allclose(resample(image, dims, method=method), expected, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("shape", [(0, 4), (4, 0)])
+def test_empty_image_keeps_the_original_behaviour(shape):
+    empty = np.zeros(shape)
+    with pytest.raises(IndexError):
+        resample(empty, (2, 2), method="neighbor")
+    with pytest.raises(ValueError, match="can't extend empty axis"):
+        resample(empty, (2, 2), method="spline")
+    assert resample(empty, (2, 2), method="nearest").shape == (2, 2)
+    assert resample(empty, (2, 2), method="linear").shape == (2, 2)

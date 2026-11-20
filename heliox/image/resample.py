@@ -1,6 +1,7 @@
 """Changing the pixel grid of an image."""
 
 import numpy as np
+from scipy.ndimage import map_coordinates
 
 from heliox._core.image import resample as _resample
 
@@ -66,7 +67,40 @@ def resample(image, dimensions, method="linear", center=False, minusone=False):
     if method not in _METHODS:
         raise ValueError(f"Unknown method {method!r}. Choose from {_METHODS}.")
 
+    if image.size == 0:
+        return _resample_empty(image, dimensions, method, center, minusone)
     return _resample(image, dimensions, method, center, minusone)
+
+
+def _resample_empty(image, dimensions, method, center, minusone):
+    """
+    Resample an image with no pixels, as the original numpy and scipy code did.
+
+    An empty image has no values to interpolate, so this path only has to
+    reproduce what the array routines return or raise for it.
+    """
+    old = np.array(image.shape, dtype=float)
+    new = np.array(dimensions, dtype=float)
+
+    offset = 0.5 if center else 0.0
+    shrink = 1.0 if minusone else 0.0
+    scale = (old - shrink) / (new - shrink)
+
+    if method == "neighbor":
+        indices = [
+            np.clip(
+                np.round(scale[axis] * (np.arange(dimensions[axis]) + offset)), 0, old[axis] - 1
+            ).astype(int)
+            for axis in range(image.ndim)
+        ]
+        return image[np.ix_(*indices)]
+
+    order = {"nearest": 0, "linear": 1, "spline": 3}[method]
+    grids = np.indices(dimensions, dtype=float)
+    coordinates = np.array(
+        [scale[axis] * (grids[axis] + offset) - offset for axis in range(image.ndim)]
+    )
+    return map_coordinates(image, coordinates, order=order, mode="nearest")
 
 
 def reshape_image_to_4d_superpixel(image, dimensions, offset):
