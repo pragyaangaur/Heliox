@@ -2,10 +2,15 @@
 //!
 //! `grid` holds the pixel index grids and the tests for whether a pixel is inside a map.
 //! `disk` holds the tests of helioprojective points against the solar disc.
+//! `format` holds the number formats of the map summary. `meta` holds header keyword logic.
+//! `geometry` holds the pixel arithmetic of submaps, resampling and superpixels.
 
 mod disk;
 mod factory;
+mod format;
+mod geometry;
 mod grid;
+mod meta;
 mod sequence;
 mod sources;
 
@@ -40,6 +45,9 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(grid::nearest_pixel_indices, &module)?)?;
     module.add_function(wrap_pyfunction!(disk::on_disk_mask, &module)?)?;
     module.add_function(wrap_pyfunction!(disk::disk_extent, &module)?)?;
+    format::register(&module)?;
+    meta::register(&module)?;
+    geometry::register(&module)?;
     sources::register(&module)?;
     Ok(())
 }
