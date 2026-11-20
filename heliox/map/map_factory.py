@@ -8,6 +8,7 @@ recognises the metadata, so that an AIA file comes back as an
 `~heliox.map.sources.AIAMap` with AIA-specific colour tables and behaviour.
 """
 
+import glob
 import os
 from pathlib import Path
 
@@ -22,6 +23,37 @@ from heliox.util.exceptions import NoMapsInFileError
 from heliox.util.metadata import MetaDict
 
 __all__ = ["Map", "MapFactory"]
+
+# The Rust path helpers follow POSIX path rules and POSIX glob matching. Elsewhere the
+# factory uses the standard library, which knows the platform's paths and case rules.
+_RUST_PATHS = os.name == "posix"
+
+
+def _path_kind(path):
+    """Say whether a path is a ``directory``, a ``file``, a glob ``pattern`` or ``missing``."""
+    if _RUST_PATHS:
+        return _core_maps.path_kind(str(path))
+    if path.is_dir():
+        return "directory"
+    if path.exists():
+        return "file"
+    if any(character in str(path) for character in "*?["):
+        return "pattern"
+    return "missing"
+
+
+def _directory_files(path):
+    """The regular files in a directory, sorted, as path strings."""
+    if _RUST_PATHS:
+        return [str(path / name) for name in _core_maps.directory_files(str(path))]
+    return sorted(str(candidate) for candidate in path.iterdir() if candidate.is_file())
+
+
+def _glob(path):
+    """The paths that a glob pattern matches, sorted."""
+    if _RUST_PATHS:
+        return _core_maps.glob_paths(str(path))
+    return sorted(glob.glob(str(path)))
 
 
 class MapFactory:
@@ -124,12 +156,12 @@ class MapFactory:
     def _parse_path(self, path, **kwargs):
         """Expand a filename, glob or directory into ``(data, header)`` pairs."""
         path = Path(path)
-        kind = _core_maps.path_kind(str(path))
+        kind = _path_kind(path)
 
         if kind == "directory":
-            files = [str(path / name) for name in _core_maps.directory_files(str(path))]
+            files = _directory_files(path)
         elif kind == "pattern":
-            files = _core_maps.glob_paths(str(path))
+            files = _glob(path)
             if not files:
                 raise ValueError(f"The pattern {str(path)!r} matched no files.")
         elif kind == "missing":

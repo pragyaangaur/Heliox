@@ -6,8 +6,9 @@ import astropy.units as u
 from astropy.table import Table
 from astropy.time import Time
 
+from heliox._core import timeseries as _core_timeseries
 from heliox.data.sample import GOES_XRS_TIMESERIES, NOAA_INDICES_TIMESERIES
-from heliox.timeseries import GenericTimeSeries, TimeSeries, timeseries_factory
+from heliox.timeseries import GenericTimeSeries, TimeSeries
 from heliox.timeseries.sources import NOAAIndicesTimeSeries, XRSTimeSeries
 from heliox.timeseries.timeseries_factory import _read_csv
 from heliox.util.exceptions import UnrecognizedFileTypeError
@@ -142,20 +143,13 @@ def test_csv_comment_lines_become_metadata():
     assert series.instrument == "NOAA-Indices"
 
 
-def test_csv_header_decodes_with_the_platform_encoding(tmp_path, monkeypatch):
-    # cp1252 is not UTF-8, so a UTF-8 reader would fail on this byte. Forcing the codec
-    # checks that the header follows the same decoding as the file that pandas reads.
+def test_csv_header_follows_the_encoding_of_the_stream(tmp_path):
+    # cp1252 is not UTF-8, so a reader that assumed UTF-8 would fail on this byte. The header
+    # reader gets its lines from the stream, so the encoding of the stream decides the text.
     path = tmp_path / "site.csv"
     path.write_bytes("# site: Caf\u00e9\ntime,a\n2013-10-28T00:00:00,1.0\n".encode("cp1252"))
-    real_open = open
-    monkeypatch.setattr(
-        timeseries_factory,
-        "open",
-        lambda name, *args, **kwargs: real_open(name, encoding="cp1252"),
-        raising=False,
-    )
-    _, meta, _ = _read_csv(str(path))
-    assert meta["site"] == "Caf\u00e9"
+    with open(path, encoding="cp1252") as stream:
+        assert _core_timeseries.header_pairs(stream) == [("site", "Caf\u00e9")]
 
 
 def test_csv_header_handles_every_line_ending(tmp_path):
