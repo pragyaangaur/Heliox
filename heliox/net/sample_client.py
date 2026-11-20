@@ -8,6 +8,7 @@ interface a real archive client would, so swapping in one that does make
 network requests is a matter of writing another `~heliox.net.BaseClient`.
 """
 
+import functools
 import os
 import shutil
 from pathlib import Path
@@ -16,6 +17,7 @@ import numpy as np
 
 import astropy.units as u
 
+from heliox._core.net import select_entries
 from heliox.net.attrs import (
     Detector,
     Instrument,
@@ -137,6 +139,84 @@ for _index, _obstime in enumerate(_SEQUENCE_TIMES):
     )
 
 
+@functools.cache
+def _catalogue_records():
+    """
+    The catalogue in the form the Rust matcher reads, one record per entry.
+
+    Times are stored as the two-part Julian dates that astropy compares, in
+    UTC for matching and in TAI for spacing, so the Rust arithmetic gives the
+    same answers as astropy's. Text is lower-cased once here.
+    """
+    records = []
+    for entry in _CATALOGUE:
+        start = parse_time(entry["start"])
+        end = parse_time(entry["end"])
+        records.append(
+            {
+                "utc_start": (start.jd1, start.jd2),
+                "utc_end": (end.jd1, end.jd2),
+                "tai_start": (start.tai.jd1, start.tai.jd2),
+                "sort_key": start.jd,
+                "instrument": entry["instrument"].lower(),
+                "source": entry["source"].lower(),
+                "detector": entry["detector"].lower(),
+                "physobs": entry["physobs"].lower(),
+                "level": str(entry["level"]),
+                "wavelength": float(entry["wavelength"]),
+            }
+        )
+    return records
+
+
+def _flat_query(query):
+    """
+    Turn a flat query into the conditions the Rust matcher checks.
+
+    Returns ``None`` if the query holds an attribute this client cannot
+    satisfy, in which case nothing matches.
+    """
+    conditions = {
+        "times": [],
+        "instruments": [],
+        "sources": [],
+        "detectors": [],
+        "physobs": [],
+        "levels": [],
+        "wavelengths": [],
+        "minimum_spacing": None,
+    }
+    for attribute in query:
+        if isinstance(attribute, Time):
+            conditions["times"].append(
+                (
+                    (attribute.start.utc.jd1, attribute.start.utc.jd2),
+                    (attribute.end.utc.jd1, attribute.end.utc.jd2),
+                )
+            )
+        elif isinstance(attribute, Instrument):
+            conditions["instruments"].append(str(attribute.value).lower())
+        elif isinstance(attribute, Source):
+            conditions["sources"].append(str(attribute.value).lower())
+        elif isinstance(attribute, Detector):
+            conditions["detectors"].append(str(attribute.value).lower())
+        elif isinstance(attribute, Physobs):
+            conditions["physobs"].append(str(attribute.value).lower())
+        elif isinstance(attribute, Level):
+            conditions["levels"].append(str(attribute.value))
+        elif isinstance(attribute, Wavelength):
+            conditions["wavelengths"].append(
+                (attribute.start.to_value(u.angstrom), attribute.end.to_value(u.angstrom))
+            )
+        elif isinstance(attribute, Sample):
+            # Only the first cadence counts, as it always has.
+            if conditions["minimum_spacing"] is None:
+                conditions["minimum_spacing"] = u.Quantity(attribute.value, u.s).value
+        else:
+            return None
+    return conditions
+
+
 def _resolve(sample):
     """Return the local path of a catalogue entry, generating it if needed."""
     from heliox.data import sample as sample_module
@@ -187,55 +267,12 @@ class SampleDataClient(BaseClient):
         >>> len(results) > 0
         True
         """
-        matches = [entry for entry in _CATALOGUE if self._matches(entry, query)]
-        matches.sort(key=lambda entry: parse_time(entry["start"]).jd)
-
-        cadence = next((each.value for each in query if isinstance(each, Sample)), None)
-        if cadence is not None:
-            matches = _thin(matches, cadence)
-
-        return self._to_table(matches)
-
-    @staticmethod
-    def _matches(entry, query):
-        """Does one catalogue entry satisfy every attribute in the query?"""
-        for attribute in query:
-            if isinstance(attribute, Time):
-                start = parse_time(entry["start"])
-                end = parse_time(entry["end"])
-                # Any overlap counts, so a long time series matches a short
-                # query window inside it.
-                if end < attribute.start or start > attribute.end:
-                    return False
-            elif isinstance(attribute, Instrument):
-                if str(attribute.value).lower() != entry["instrument"].lower():
-                    return False
-            elif isinstance(attribute, Source):
-                if str(attribute.value).lower() != entry["source"].lower():
-                    return False
-            elif isinstance(attribute, Detector):
-                if str(attribute.value).lower() != entry["detector"].lower():
-                    return False
-            elif isinstance(attribute, Physobs):
-                if str(attribute.value).lower() != entry["physobs"].lower():
-                    return False
-            elif isinstance(attribute, Level):
-                if str(attribute.value) != str(entry["level"]):
-                    return False
-            elif isinstance(attribute, Wavelength):
-                value = entry["wavelength"]
-                if not np.isfinite(value):
-                    return False
-                measured = value * u.angstrom
-                if not (attribute.start.to(u.angstrom) <= measured <= attribute.end.to(u.angstrom)):
-                    return False
-            elif isinstance(attribute, Sample):
-                continue
-            else:
-                # An attribute this client does not understand cannot be
-                # satisfied, so nothing matches.
-                return False
-        return True
+        conditions = _flat_query(query)
+        if conditions is None:
+            indices = []
+        else:
+            indices = select_entries(_catalogue_records(), conditions)
+        return self._to_table([_CATALOGUE[index] for index in indices])
 
     def _to_table(self, entries):
         """Build a result table from catalogue entries."""
@@ -317,16 +354,3 @@ class SampleDataClient(BaseClient):
         if not query:
             return False
         return all(isinstance(attribute, cls.supported_attrs) for attribute in query)
-
-
-def _thin(entries, cadence):
-    """Drop entries that fall closer together than ``cadence``."""
-    minimum = u.Quantity(cadence, u.s)
-    kept = []
-    last = None
-    for entry in entries:
-        start = parse_time(entry["start"])
-        if last is None or (start - last).to(u.s) >= minimum:
-            kept.append(entry)
-            last = start
-    return kept
