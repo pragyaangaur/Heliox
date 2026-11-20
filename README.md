@@ -149,6 +149,10 @@ The [`rust/`](rust/) folder holds `heliox_rs`, a separate and optional package. 
 | MEM entropy proximal step | stixpy, through xrayvision | 10 to 15 times on a whole MEM reconstruction of real STIX data | bit-identical |
 | `differential_rotate` coordinate chain | sunpy | 6 to 8 times on a full-disk map, about 2.5 times on a crop | within about a millionth of a pixel |
 
+The chart shows the speedup of five Rust functions over the original Python, including two in Heliox itself, measured on an Apple M4.
+
+![Rust speedups over the original Python for five functions](figures/rust_speedups.png)
+
 The [`profiling/`](profiling/) folder explains how these targets were chosen. It also explains why most other hot paths in sunpy, sunkit-magex, stixpy, aiapy and ndcube were left alone, which is that their time is already spent in compiled code.
 
 ## Examples
