@@ -24,10 +24,10 @@
 //!   products of the sines and cosines that appear in the spherical rotation of the WCS. This
 //!   avoids `asin` and `acos` near the poles of the native system, where they lose digits (wcslib
 //!   avoids them for the same reason).
-//! * The law of cosines in step 2 is written in the original order, because near the limb its
-//!   square root amplifies rounding. A pixel closer to the limb than about a pixel can differ from
-//!   the original by more than the rest of the chain, since the original has that rounding noise
-//!   too, only from different unit conversions.
+//! * The law of cosines in step 2 is written without the cancellation of the original (see
+//!   `source_pixel`). The original's rounding error there is a few millimetres of distance along
+//!   the line of sight, which is about 1e-9 pixel at the disc centre for a large rotation and
+//!   grows towards the limb, so the difference between the two is the original's noise.
 //!
 //! The kernel does not reproduce wcslib bit for bit and nothing here claims it does. The tests
 //! compare against sunpy directly and report the largest differences.
@@ -192,13 +192,16 @@ fn mat_vec(m: &[f64; 9], v: [f64; 3]) -> [f64; 3] {
 #[inline(always)]
 pub fn source_pixel(w: &Wcs, c: &Chain, px: f64, py: f64) -> [f64; 2] {
     const NAN: [f64; 2] = [f64::NAN, f64::NAN];
-    // 1 and 2: direction as seen by the new observer, distance to the surface by the law of
-    // cosines, written in the order of sunpy's `Helioprojective.make_3d`.
+    // 1 and 2: direction as seen by the new observer, and the distance to the near intersection
+    // with the sphere of radius `rsun`. This is the law of cosines of sunpy's
+    // `Helioprojective.make_3d`, `d = R cos(a) - sqrt(rsun^2 - R^2 sin^2(a))`, with `sin^2(a)` taken
+    // from the two small components of the unit vector. The original forms the discriminant as
+    // `b^2 - 4c` from `R^2 cos^2(a)` and `R^2 - rsun^2`, which are both about 1e23 m^2 and cancel
+    // to about 1e18 m^2, so its result carries a rounding error of a few millimetres in `d`. This
+    // form has none of that cancellation.
     let u = w.pixel_to_unit(px, py);
-    let cos_alpha = u[0];
-    let cc = c.r_new * c.r_new - c.rsun * c.rsun;
-    let bb = -2.0 * c.r_new * cos_alpha;
-    let d = ((-1.0 * bb) - (bb * bb - 4.0 * cc).sqrt()) / 2.0;
+    let disc = c.rsun * c.rsun - c.r_new * c.r_new * (u[1] * u[1] + u[2] * u[2]);
+    let d = c.r_new * u[0] - disc.sqrt();
     if d.is_nan() {
         return NAN;
     }
