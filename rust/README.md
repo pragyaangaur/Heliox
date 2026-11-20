@@ -17,7 +17,20 @@ Some behaviour of the original is kept on purpose, because the tests compare aga
 - An input with `rows <= 2r` or `cols <= 2r` raises `IndexError`, because the original indexes an empty array.
 - Output dtype follows the promoted input dtype in native byte order. The real test data is stored big endian, and the original returns native float32 for it.
 
-Two small differences exist. Negative `r` and inputs that are not two dimensional raise `ValueError` with a clear message, where the original fails with an obscure NumPy error. Dtypes other than float32, float64 and integers raise `TypeError`. The helper functions `generate_velocity_field` and `calculate_gamma` are not reimplemented, because the Rust kernel replaces the whole path that uses them.
+The validation differs from the original in these ways:
+
+- float16 and bool inputs raise `TypeError` (the original runs on them), as do complex and other unsupported dtypes. Float32, float64 and integer dtypes are accepted.
+- Inputs that are not two dimensional raise `ValueError`, and so does a negative `r`. The original fails with an unrelated NumPy error in those cases.
+- Lists and other array-likes are accepted and converted with `np.asarray`, where the original raises `AttributeError` because it reads `vx.shape`.
+- A too-small input raises `IndexError` as in the original, but with a different message that names the shape and the minimum size.
+
+The checks that the original does have, a `ValueError` for mismatched shapes and a `TypeError` for a non-`int` `r` or `factor`, give the same exception type and the same message. The helper functions `generate_velocity_field` and `calculate_gamma` are not reimplemented, because the Rust kernel replaces the whole path that uses them.
+
+## Limits
+
+The bit-for-bit agreement is verified only against the NumPy that is installed here, 2.5.5 on arm64 macOS. It relies on NumPy's pairwise `nansum` along axis 1, on the sequential mean along axis 0, and on the float32 steps of the original, so another NumPy version or CPU could change the last bit. The tests compare with strict equality and would catch such a drift.
+
+The GIL is released while Rust reads the input arrays, and the arrays are not copied when they are already contiguous and native. The caller must not modify the input from another Python thread during the call, because the kernel would then read data that is changing.
 
 ## Build
 
@@ -53,12 +66,12 @@ The driver starts `bench/bench_asda.py` once per implementation and field under 
 
 | Field | Implementation | Median time (s) | Speedup vs original | Peak RSS (GB) |
 | --- | --- | ---: | ---: | ---: |
-| real 512x1024 | sunkit-image original | 4.779 | 1x | 1.37 |
-| real 512x1024 | NumPy `sliding_window_view` | 0.5201 | 9.2x | 1.65 |
-| real 512x1024 | Rust, 1 thread | 0.06536 | 73x | 0.14 |
-| real 512x1024 | Rust, all cores | 0.01312 | 364x | 0.13 |
+| real 512x1024 | sunkit-image original | 4.631 | 1x | 1.41 |
+| real 512x1024 | NumPy `sliding_window_view` | 0.5094 | 9.1x | 1.64 |
+| real 512x1024 | Rust, 1 thread | 0.06473 | 72x | 0.12 |
+| real 512x1024 | Rust, all cores | 0.01192 | 389x | 0.13 |
 | random 1024x1024 | sunkit-image original | 9.303 | 1x | 4.26 |
-| random 1024x1024 | Rust, 1 thread | 0.142 | 66x | 0.12 |
-| random 1024x1024 | Rust, all cores | 0.02658 | 350x | 0.12 |
+| random 1024x1024 | Rust, 1 thread | 0.1396 | 67x | 0.11 |
+| random 1024x1024 | Rust, all cores | 0.02522 | 369x | 0.11 |
 
-Peak RSS is the maximum resident size of the benchmark process, read from `getrusage` inside it. The watchdog's own sampled figures were within 0.4 GB of these and were 3.98 GB for the original on the 1024x1024 field, which is close to the 4 GB limit. The Rust figures are for the whole Python call, including the one copy that converts the big endian float32 input to native order. The single-thread run uses `RAYON_NUM_THREADS=1`.
+Peak RSS is the maximum resident size of the benchmark process, read from `getrusage` inside it. The watchdog's own sampled figures were within 0.4 GB of these and were 3.98 GB for the original on the 1024x1024 field, which is close to the 4 GB limit. On a later rerun the original was killed by the watchdog at that limit, so its 1024x1024 time and memory come from the earlier run. The Rust figures are for the whole Python call, including the one copy that converts the big endian float32 input to native order. The output array is filled in place, with no second copy. The single-thread run uses `RAYON_NUM_THREADS=1`.
