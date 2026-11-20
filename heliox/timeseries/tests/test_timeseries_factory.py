@@ -9,6 +9,7 @@ from astropy.time import Time
 from heliox.data.sample import GOES_XRS_TIMESERIES, NOAA_INDICES_TIMESERIES
 from heliox.timeseries import GenericTimeSeries, TimeSeries
 from heliox.timeseries.sources import NOAAIndicesTimeSeries, XRSTimeSeries
+from heliox.timeseries.timeseries_factory import _read_csv
 from heliox.util.exceptions import UnrecognizedFileTypeError
 
 
@@ -139,6 +140,19 @@ def test_concatenate_option():
 def test_csv_comment_lines_become_metadata():
     series = TimeSeries(NOAA_INDICES_TIMESERIES)
     assert series.instrument == "NOAA-Indices"
+
+
+def test_csv_header_handles_every_line_ending(tmp_path):
+    path = tmp_path / "header.csv"
+    path.write_bytes(
+        b"# instrume: first\r# instrume: second\r\n# note: a: b\n"
+        b"time,a\n2013-10-28T00:00:00,1.0\n# not: metadata\n"
+    )
+    frame, meta, _ = _read_csv(str(path))
+    assert meta["instrume"] == "second"
+    assert meta["note"] == "a: b"
+    assert "not" not in meta
+    assert len(frame) == 1
 
 
 # ---------------------------------------------------------------------------
