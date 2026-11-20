@@ -32,6 +32,16 @@ def test_deprecated_suggests_an_alternative():
         old()
 
 
+def test_deprecated_docstring_note_for_an_undocumented_object():
+    @deprecated("0.2")
+    def old():
+        return 1
+
+    assert old.__doc__ == (
+        "\n\n.. deprecated:: 0.2\n    old is deprecated as of heliox 0.2 and will be removed.\n"
+    )
+
+
 def test_deprecated_accepts_a_custom_message():
     @deprecated("0.2", message="This does not work any more.")
     def old():
