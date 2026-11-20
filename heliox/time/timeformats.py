@@ -7,8 +7,6 @@ be used anywhere a format string is accepted::
     Time(value, format='utime')
 """
 
-import numpy as np
-
 from astropy.time import TimeFromEpoch
 
 __all__ = ["TimeUTime", "TimeTaiSeconds"]
@@ -51,8 +49,3 @@ class TimeTaiSeconds(TimeFromEpoch):
     epoch_val2 = None
     epoch_scale = "tai"
     epoch_format = "iso"
-
-
-def _seconds_to_days(seconds):
-    """Convert a scalar or array of seconds into days as a float array."""
-    return np.asarray(seconds, dtype=float) / 86400.0
