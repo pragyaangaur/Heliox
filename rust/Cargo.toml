@@ -2,7 +2,7 @@
 name = "heliox-rs"
 version = "0.1.0"
 edition = "2021"
-description = "Rust kernels for Heliox, starting with the ASDA gamma computation."
+description = "Rust kernels for Heliox: ASDA, the MEM proximal step and the differential rotation coordinate chain."
 license = "BSD-3-Clause"
 
 [lib]
