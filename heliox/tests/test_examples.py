@@ -30,6 +30,7 @@ def test_example_runs(script, tmp_path, monkeypatch):
     assert result.stdout.strip()
 
 
+@pytest.mark.skipif(not SCRIPTS, reason="the examples directory is not present")
 def test_every_example_is_listed_in_the_readme():
     readme = (EXAMPLES / "README.md").read_text()
     for script in SCRIPTS:
