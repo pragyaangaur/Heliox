@@ -19,7 +19,13 @@ aia.peek(draw_limb=True, draw_grid=15 * u.deg)
 
 ## Installing
 
-Heliox needs Python 3.10 or later and a Rust toolchain, because installing it compiles the Rust core. Install Rust from [rustup.rs](https://rustup.rs) if you do not have it, then run:
+Heliox needs Python 3.10 or later. Each [GitHub release](https://github.com/pragyaangaur/Heliox/releases) carries prebuilt wheels for Linux (x86_64, aarch64 and musl), macOS (Intel and Apple Silicon) and Windows, so installing from a wheel needs no Rust toolchain. Download the wheel for your platform and install it with pip:
+
+```bash
+pip install heliox-0.2.0-cp310-abi3-<platform>.whl
+```
+
+To build from source you also need Rust, which you can install from [rustup.rs](https://rustup.rs). The build uses [maturin](https://www.maturin.rs) and produces one extension module, `heliox._core`, next to the Python package.
 
 ```bash
 git clone https://github.com/pragyaangaur/Heliox
@@ -27,7 +33,7 @@ cd Heliox
 pip install -e .
 ```
 
-The build uses [maturin](https://www.maturin.rs). It produces one extension module, `heliox._core`, next to the Python package.
+The documentation is published at [pragyaangaur.dev/Heliox](https://pragyaangaur.dev/Heliox/).
 
 ## How it is built
 
@@ -139,6 +145,23 @@ constants.radius.to("km")                     # <Quantity 695700. km>
 
 ![B0, L0, P and the angular radius through a year](figures/annual_ephemeris.png)
 
+## Benchmarks
+
+The [`benchmarks/`](benchmarks/) folder times the last pure-Python version of Heliox against the Rust-core version on the same everyday tasks, with identical numpy, scipy and astropy versions. Every task gives the same result in both versions.
+
+| Task | Python | Rust core | Speedup |
+| --- | ---: | ---: | ---: |
+| Fido search on the sample catalogue | 9.7 ms | 2.0 ms | 4.9x |
+| `parse_time` on 10,000 strings | 74 ms | 34 ms | 2.2x |
+| Load GOES and NOAA series and compute flare classes | 25 ms | 14 ms | 1.8x |
+| `import heliox.map` | 1.11 s | 0.69 s | 1.6x |
+| Positions of five bodies at 1,000 times | 0.41 s | 0.30 s | 1.3x |
+| `differential_rotate` of the AIA map by one day | 152 ms | 137 ms | 1.1x |
+| Transform 1,000,000 helioprojective points to Stonyhurst | 192 ms | 179 ms | 1.1x |
+| B0, L0, P and Carrington rotation at 10,000 times | 7.40 s | 7.20 s | 1.03x |
+
+The geometric mean over all 13 tasks is 1.30x. Most whole-API tasks gain only a little, because their time is spent in astropy's `Time`, `SkyCoord` and WCS machinery, which Heliox keeps so that its API stays the same. The large gains are in individual kernels, shown in the next section. A bare `import heliox` is about 1 ms slower, because it now loads the compiled module. The full table and the notes on what dominates each task are in [benchmarks/README.md](benchmarks/README.md).
+
 ## Rust kernels for other sunpy packages
 
 The [`rust/`](rust/) folder holds `heliox_rs`, a separate and optional package. It speeds up three slow functions from the wider sunpy ecosystem while keeping their Python signatures, and its tests compare every result with the original package.
@@ -172,7 +195,7 @@ pytest
 
 The suite holds more than 1,000 tests, plus the doctests in every docstring, and it runs offline. Before committing Rust changes, run `cargo fmt --check` and `cargo clippy -- -D warnings` inside `core/`. The layout of the Rust crate is described in [core/README.md](core/README.md), and [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
 
-The user guide covers [maps](docs/guide/maps.rst), [coordinates](docs/guide/coordinates.rst), [time series](docs/guide/timeseries.rst) and [searching](docs/guide/searching.rst). Build it with:
+The user guide, published at [pragyaangaur.dev/Heliox](https://pragyaangaur.dev/Heliox/), covers [maps](docs/guide/maps.rst), [coordinates](docs/guide/coordinates.rst), [time series](docs/guide/timeseries.rst) and [searching](docs/guide/searching.rst). Build it with:
 
 ```bash
 pip install -e ".[docs]"
