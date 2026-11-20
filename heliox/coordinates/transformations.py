@@ -377,8 +377,11 @@ def hpc_to_hcc(hpc_coord, hcc_frame):
     )
 
     shape = tx.shape
+    # The old code took z from the observer radius, so z keeps that unit.
     cartesian = CartesianRepresentation(
-        x=x.reshape(shape) * unit, y=y.reshape(shape) * unit, z=z.reshape(shape) * unit
+        x=x.reshape(shape) * unit,
+        y=y.reshape(shape) * unit,
+        z=(z.reshape(shape) * unit).to(source_observer.radius.unit),
     )
     if _same_observer(hpc_coord.observer, hcc_frame.observer):
         return hcc_frame.realize_frame(cartesian)
