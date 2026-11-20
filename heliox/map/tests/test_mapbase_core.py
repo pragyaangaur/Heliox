@@ -97,6 +97,17 @@ def test_submap_outside_the_map_raises(aia):
         aia.submap([600, 600] * u.pix, top_right=[700, 700] * u.pix)
 
 
+def test_submap_rejects_array_valued_width(aia):
+    with pytest.raises(ValueError, match="truth value of an array"):
+        aia.submap([2, 2] * u.pix, width=[3, 3] * u.pix, height=[2, 2] * u.pix)
+
+
+def test_superpixel_rejects_a_nan_block_size_as_before(aia):
+    # numpy casts NaN to an integer below one on every platform, so the block check fires.
+    with pytest.raises(ValueError, match="at least one pixel"):
+        aia.superpixel([np.nan, 2] * u.pix)
+
+
 def test_resample_needs_two_sizes(aia):
     with pytest.raises(ValueError, match="two numbers"):
         aia.resample([4, 4, 4] * u.pix)

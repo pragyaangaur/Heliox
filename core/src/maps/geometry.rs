@@ -103,34 +103,36 @@ pub fn resampled_header(
 
 /// The block size and offset of a superpixel binning, as whole `(block_x, block_y, offset_x, offset_y)`.
 ///
-/// Both inputs are `(x, y)` pairs that are truncated toward zero. Raises `ValueError`
-/// unless each is a pair, every block is at least one pixel and no offset is negative.
+/// Both inputs are `(x, y)` pairs of whole pixels. The Python side converts the floats with
+/// numpy, so the handling of NaN and infinity stays the platform's, as it was before.
+/// Raises `ValueError` unless each is a pair, every block is at least one pixel and no
+/// offset is negative.
 #[pyfunction]
 pub fn superpixel_block(
-    dimensions: Vec<f64>,
-    offset: Vec<f64>,
+    dimensions: Vec<i64>,
+    offset: Vec<i64>,
 ) -> PyResult<(usize, usize, usize, usize)> {
-    if dimensions.len() != 2 || offset.len() != 2 {
-        return Err(PyValueError::new_err(
+    match (dimensions.as_slice(), offset.as_slice()) {
+        (&[block_x, block_y], &[offset_x, offset_y]) => {
+            if block_x < 1 || block_y < 1 {
+                return Err(PyValueError::new_err(
+                    "Each block must be at least one pixel across.",
+                ));
+            }
+            if offset_x < 0 || offset_y < 0 {
+                return Err(PyValueError::new_err("The offset cannot be negative."));
+            }
+            Ok((
+                block_x as usize,
+                block_y as usize,
+                offset_x as usize,
+                offset_y as usize,
+            ))
+        }
+        _ => Err(PyValueError::new_err(
             "Give both the block size and the offset as (x, y).",
-        ));
+        )),
     }
-    let block = [dimensions[0] as i64, dimensions[1] as i64];
-    let shift = [offset[0] as i64, offset[1] as i64];
-    if block.iter().any(|&size| size < 1) {
-        return Err(PyValueError::new_err(
-            "Each block must be at least one pixel across.",
-        ));
-    }
-    if shift.iter().any(|&shift| shift < 0) {
-        return Err(PyValueError::new_err("The offset cannot be negative."));
-    }
-    Ok((
-        block[0] as usize,
-        block[1] as usize,
-        shift[0] as usize,
-        shift[1] as usize,
-    ))
 }
 
 /// The header scales and reference pixel after superpixel binning, as `((cdelt1, cdelt2), (crpix1, crpix2))`.
@@ -249,14 +251,14 @@ mod tests {
     }
 
     #[test]
-    fn superpixel_block_truncates_and_validates() {
+    fn superpixel_block_validates_its_pairs() {
         assert_eq!(
-            superpixel_block(vec![2.9, 4.0], vec![1.5, 0.0]).unwrap(),
+            superpixel_block(vec![2, 4], vec![1, 0]).unwrap(),
             (2, 4, 1, 0)
         );
-        assert!(superpixel_block(vec![0.5, 2.0], vec![0.0, 0.0]).is_err());
-        assert!(superpixel_block(vec![2.0, 2.0], vec![-1.0, 0.0]).is_err());
-        assert!(superpixel_block(vec![2.0], vec![0.0, 0.0]).is_err());
+        assert!(superpixel_block(vec![0, 2], vec![0, 0]).is_err());
+        assert!(superpixel_block(vec![2, 2], vec![-1, 0]).is_err());
+        assert!(superpixel_block(vec![2], vec![0, 0]).is_err());
     }
 
     #[test]

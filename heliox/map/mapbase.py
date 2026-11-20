@@ -678,6 +678,12 @@ class GenericMap:
         (100, 100)
         """
         (x0, y0), (x1, y1) = self._pixel_corners(bottom_left, top_right, width, height)
+        if any(np.size(corner) != 1 for corner in (x0, y0, x1, y1)):
+            # Corners must be single numbers. This is the error the array comparison raised before.
+            raise ValueError(
+                "The truth value of an array with more than one element is ambiguous. "
+                "Use a.any() or a.all()"
+            )
         left, lower, right, upper = _core_maps.submap_bounds(
             x0, y0, x1, y1, self._data.shape[1], self._data.shape[0]
         )
@@ -792,8 +798,8 @@ class GenericMap:
         """
         from heliox.image.resample import reshape_image_to_4d_superpixel
 
-        dimensions = u.Quantity(dimensions, u.pix).to_value(u.pix)
-        offset = u.Quantity(offset, u.pix).to_value(u.pix)
+        dimensions = u.Quantity(dimensions, u.pix).to_value(u.pix).astype(int)
+        offset = u.Quantity(offset, u.pix).to_value(u.pix).astype(int)
         block_x, block_y, offset_x, offset_y = _core_maps.superpixel_block(dimensions, offset)
 
         blocks = reshape_image_to_4d_superpixel(
