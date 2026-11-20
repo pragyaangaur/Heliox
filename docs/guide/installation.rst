@@ -3,13 +3,26 @@ Installation
 
 heliox needs Python 3.10 or later.
 
-From source
------------
+From a wheel
+------------
+
+Each release on GitHub carries prebuilt wheels for Linux, macOS and Windows, so no Rust toolchain is needed. Download the wheel for your platform from the `releases page <https://github.com/pragyaangaur/Heliox/releases>`__ and install it with pip:
 
 .. code-block:: bash
 
-    git clone https://github.com/pragyaangaur/heliox
-    cd heliox
+    pip install heliox-0.2.0-cp310-abi3-<platform>.whl
+
+Once the package is on PyPI, ``pip install heliox`` will do the same.
+
+From source
+-----------
+
+Building from source compiles the Rust core, so you need a Rust toolchain from `rustup.rs <https://rustup.rs>`__ as well as Python.
+
+.. code-block:: bash
+
+    git clone https://github.com/pragyaangaur/Heliox
+    cd Heliox
     pip install -e .
 
 For a development install, including the test and documentation dependencies:
@@ -38,7 +51,7 @@ Checking the installation
 
     >>> import heliox
     >>> heliox.__version__  # doctest: +SKIP
-    '0.1.0'
+    '0.2.0'
 
 To run the test suite:
 
