@@ -23,6 +23,7 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx.ext.viewcode",
     "sphinx.ext.napoleon",
+    "sphinx.ext.githubpages",
 ]
 
 templates_path = ["_templates"]
@@ -55,17 +56,30 @@ nitpicky = False
 suppress_warnings = ["autodoc.import_object"]
 
 # -- HTML output -------------------------------------------------------------
-html_theme = "alabaster"
-html_static_path = []
-html_title = f"heliox {version}"
+# Furo is used when it is installed. Otherwise the build falls back to the
+# built-in alabaster theme, so the documentation still builds without it.
+try:
+    import furo  # noqa: F401
 
-html_theme_options = {
-    "description": "A solar physics toolkit for Python",
-    "github_user": "pragyaangaur",
-    "github_repo": "heliox",
-    "fixed_sidebar": True,
-    "page_width": "1000px",
-}
+    html_theme = "furo"
+    html_theme_options = {
+        "source_repository": "https://github.com/pragyaangaur/Heliox/",
+        "source_branch": "main",
+        "source_directory": "docs/",
+    }
+except ImportError:
+    html_theme = "alabaster"
+    html_theme_options = {
+        "description": "A solar physics toolkit for Python",
+        "github_user": "pragyaangaur",
+        "github_repo": "Heliox",
+        "fixed_sidebar": True,
+        "page_width": "1000px",
+    }
+
+html_title = f"heliox {version} documentation"
+html_baseurl = "https://pragyaangaur.github.io/Heliox/"
+html_static_path = []
 
 # -- Doctests ----------------------------------------------------------------
 doctest_global_setup = """
