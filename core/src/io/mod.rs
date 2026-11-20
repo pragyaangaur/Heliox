@@ -1,8 +1,11 @@
 //! The `io` submodule of `heliox._core`.
 //!
-//! `header` holds the FITS header text logic behind `heliox.io._fits`. Add new
-//! functions to this folder and register each one in `register`.
+//! `header` holds the FITS header text logic behind `heliox.io._fits`, and
+//! `detect` holds the magic number and extension rules behind
+//! `heliox.io.file_tools`. Add new functions to this folder and register each
+//! one in `register`.
 
+mod detect;
 mod header;
 
 use pyo3::prelude::*;
@@ -20,5 +23,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(_ping, &module)?)?;
     module.add_function(wrap_pyfunction!(header::collapse_header, &module)?)?;
     module.add_function(wrap_pyfunction!(header::extract_waveunit, &module)?)?;
+    module.add_function(wrap_pyfunction!(detect::detect_filetype, &module)?)?;
     Ok(())
 }

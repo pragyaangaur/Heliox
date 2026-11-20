@@ -132,6 +132,12 @@ def test_detect_filetype_falls_back_to_the_extension(tmp_path):
     assert detect_filetype(path) == "fits"
 
 
+def test_detect_filetype_recognises_jpeg2000_magic(tmp_path):
+    path = tmp_path / "data.bin"
+    path.write_bytes(b"\x00\x00\x00\x0cjP  \r\n\x87\n")
+    assert detect_filetype(path) == "jp2"
+
+
 def test_detect_filetype_gives_up_on_unknown_files(tmp_path):
     path = tmp_path / "data.unknown"
     path.write_bytes(b"who knows")
