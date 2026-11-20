@@ -158,7 +158,7 @@ def _disk_arrays(coordinates):
 
 
 def _pixel_values(quantity):
-    """The values of a pixel quantity as a float array, which the Rust grid tests take."""
+    """The values of a pixel quantity as a float array, for the Rust grid functions."""
     return np.asarray(quantity.to_value(u.pix), dtype=float)
 
 
