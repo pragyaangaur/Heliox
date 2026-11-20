@@ -174,6 +174,10 @@ compatible. **For real scientific work, use SunPy.** It is maintained by the
 community, validated against real data, and has instrument support that this
 does not.
 
+## Rust kernels for the sunpy ecosystem
+
+The [`rust/`](rust/) folder holds `heliox_rs`, a separate package built with PyO3 and maturin. It replaces two slow Python functions from the sunpy ecosystem with Rust while keeping their Python signatures, and its tests compare every result with the original package bit for bit. The first is `calculate_gamma_values` from the ASDA vortex detector in sunkit-image, which runs about 390 times faster on a real 512 by 1024 velocity field. The second is the entropy proximal step inside the MEM imaging method that stixpy uses through xrayvision, which makes a whole MEM reconstruction 10 to 15 times faster on real STIX data. The [`profiling/`](profiling/) folder records how these two targets were chosen and why most other hot paths in sunpy, sunkit-magex, stixpy, aiapy and ndcube were left alone. Building `heliox_rs` is optional and does not change how Heliox itself installs.
+
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE).
