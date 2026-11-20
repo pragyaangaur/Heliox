@@ -13,10 +13,10 @@ import numpy as np
 
 import astropy.constants as const
 import astropy.units as u
-from astropy.coordinates import get_body_barycentric
 from astropy.time import Time
 
 from heliox._core import coordinates as _rust
+from heliox.sun._position import body_barycentric
 from heliox.time import parse_time
 
 __all__ = []
@@ -47,7 +47,7 @@ def _sun_to_earth(t):
     Expressed in the ICRS axes, with shape ``(..., 3)``.
     """
     time = parse_time(t)
-    offset = get_body_barycentric("earth", time) - get_body_barycentric("sun", time)
+    offset = body_barycentric("earth", time) - body_barycentric("sun", time)
     return np.moveaxis(offset.xyz.to_value(u.AU), 0, -1)
 
 

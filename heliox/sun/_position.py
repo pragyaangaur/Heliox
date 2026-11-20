@@ -23,6 +23,7 @@ from astropy.coordinates import (
     SkyCoord,
     get_body,
     get_body_barycentric,
+    solar_system_ephemeris,
 )
 from astropy.coordinates.representation import CartesianRepresentation
 
@@ -52,6 +53,57 @@ def _unshape(values, shape):
 def _jd(t):
     """Return the TT Julian date of ``t`` as a plain float or array."""
     return parse_time(t).tt.jd
+
+
+#: The bodies that astropy's built-in ephemeris can place, in lower case.
+_BUILTIN_BODIES = frozenset(
+    {
+        "earth",
+        "sun",
+        "moon",
+        "mercury",
+        "venus",
+        "earth-moon-barycenter",
+        "mars",
+        "jupiter",
+        "saturn",
+        "uranus",
+        "neptune",
+    }
+)
+
+
+def body_barycentric(body, time):
+    """
+    The barycentric position of a solar system body, as in `astropy.coordinates`.
+
+    This is `~astropy.coordinates.get_body_barycentric`. With the built-in
+    ephemeris the position is computed in the Rust core, from the same ERFA
+    routines that astropy uses. Other ephemerides, bodies that the built-in
+    ephemeris does not have, and dates for which ERFA warns, all go to astropy
+    unchanged, so that its results, warnings and errors are kept.
+    """
+    ephemeris = solar_system_ephemeris.get()
+    if (
+        not isinstance(body, str)
+        or body.lower() not in _BUILTIN_BODIES
+        or ephemeris is None
+        or ephemeris.lower() != "builtin"
+    ):
+        return get_body_barycentric(body, time)
+
+    tdb = time.tdb
+    jd1, jd2 = np.broadcast_arrays(
+        np.asarray(tdb.jd1, dtype=float), np.asarray(tdb.jd2, dtype=float)
+    )
+    xyz, status = _rust.body_barycentric(
+        body.lower(),
+        np.ascontiguousarray(jd1).ravel(),
+        np.ascontiguousarray(jd2).ravel(),
+    )
+    if status:
+        return get_body_barycentric(body, time)
+    return CartesianRepresentation(xyz.reshape((3,) + jd1.shape) * u.AU, xyz_axis=0)
 
 
 def _nutation(t):
@@ -104,8 +156,8 @@ def _geometric_sun_from_earth(t):
     Returns a `~astropy.coordinates.CartesianRepresentation` in the ICRS axes.
     """
     time = parse_time(t)
-    earth = get_body_barycentric("earth", time)
-    sun = get_body_barycentric("sun", time)
+    earth = body_barycentric("earth", time)
+    sun = body_barycentric("sun", time)
     return CartesianRepresentation((sun - earth).xyz)
 
 

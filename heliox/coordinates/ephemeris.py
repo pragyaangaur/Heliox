@@ -6,13 +6,13 @@ import astropy.units as u
 from astropy.coordinates import (
     HCRS,
     SkyCoord,
-    get_body_barycentric,
     solar_system_ephemeris,
 )
 from astropy.coordinates.representation import CartesianRepresentation
 
 from heliox._core import coordinates as _rust
 from heliox.coordinates._matrices import _flat
+from heliox.sun._position import body_barycentric
 from heliox.time import parse_time
 
 __all__ = [
@@ -83,7 +83,7 @@ def _light_speed():
 def _body_offset(body, time):
     """The vector from the centre of the Sun to a body, in the ICRS axes."""
     with solar_system_ephemeris.set(solar_system_ephemeris.get()):
-        offset = get_body_barycentric(body, time) - get_body_barycentric("sun", time)
+        offset = body_barycentric(body, time) - body_barycentric("sun", time)
     return CartesianRepresentation(offset.xyz)
 
 

@@ -7,9 +7,14 @@
 //! Every binding takes flat float arrays of equal length and returns flat
 //! arrays. Python handles broadcasting, units and astropy Time objects.
 
+mod barycentric;
 mod carrington;
 mod ephemeris;
+mod epv00;
+mod moon98;
 mod nutation;
+mod plan94;
+mod precession;
 mod rootfind;
 mod rotation;
 
@@ -297,6 +302,7 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(limb_darkening, &module)?)?;
     module.add_function(wrap_pyfunction!(limb_darkening_coefficients, &module)?)?;
     module.add_function(wrap_pyfunction!(sunspot_flux, &module)?)?;
+    module.add_function(wrap_pyfunction!(barycentric::body_barycentric, &module)?)?;
     module.add_function(wrap_pyfunction!(nutation::py_nut06a, &module)?)?;
     module.add_function(wrap_pyfunction!(nutation::py_obl06, &module)?)?;
     Ok(())
