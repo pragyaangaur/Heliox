@@ -142,6 +142,20 @@ def _numpy_limits(values, low, high):
     )
 
 
+def _assert_limits(actual, expected, dtype):
+    """
+    Check display limits against numpy's percentiles.
+
+    Double precision limits must match exactly. numpy changed how it rounds the interpolation
+    of single precision percentiles between releases (2.2 and 2.5 give different last digits),
+    so single precision limits are checked to single precision accuracy instead.
+    """
+    if dtype == np.float32:
+        assert actual == pytest.approx(expected, rel=1e-5)
+    else:
+        assert actual == expected
+
+
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_aia_limits_match_numpy_percentiles(dtype):
     rng = np.random.default_rng(1)
@@ -150,7 +164,7 @@ def test_aia_limits_match_numpy_percentiles(dtype):
     data[1, 0] = np.inf
     finite = data[np.isfinite(data)]
     low, high = _numpy_limits(finite, 1.0, 99.9)
-    assert core.aia_display_limits(*samples(data)) == (max(low, 0.0), high)
+    _assert_limits(core.aia_display_limits(*samples(data)), (max(low, 0.0), high), dtype)
 
 
 def test_aia_limits_are_none_without_a_usable_range():
@@ -161,7 +175,9 @@ def test_aia_limits_are_none_without_a_usable_range():
 def test_lasco_limits_use_positive_finite_values_only():
     data = np.array([[-1.0, 0.0, 1.0, 2.0], [3.0, np.inf, np.nan, 4.0]], dtype=np.float32)
     positive = data[np.isfinite(data) & (data > 0)]
-    assert core.lasco_display_limits(*samples(data)) == _numpy_limits(positive, 5, 99.5)
+    _assert_limits(
+        core.lasco_display_limits(*samples(data)), _numpy_limits(positive, 5, 99.5), np.float32
+    )
     assert core.lasco_display_limits(*samples(-np.ones((3, 3)))) is None
 
 
