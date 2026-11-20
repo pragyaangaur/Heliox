@@ -1,0 +1,9 @@
+# Tests, benchmarks, profiling scripts, examples and docs are not part of the library,
+# so they are left out of the language statistics on GitHub.
+heliox/**/tests/** linguist-documentation
+heliox/tests/** linguist-documentation
+rust/tests/** linguist-documentation
+rust/bench/** linguist-documentation
+profiling/** linguist-documentation
+examples/** linguist-documentation
+docs/** linguist-documentation
