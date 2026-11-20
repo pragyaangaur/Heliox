@@ -8,7 +8,6 @@ new temporary directory, so that the source tree is never imported.
 usage: python smoke_test.py path/to/heliox-X.Y.Z-tag.whl
 """
 
-import importlib
 import os
 import pathlib
 import re
@@ -21,7 +20,6 @@ import venv
 # comes from the environment rather than the source tree, that every compiled
 # submodule imports, and that a sample map can be loaded and read.
 CHECKS = r"""
-import importlib
 import os
 import sys
 import types
