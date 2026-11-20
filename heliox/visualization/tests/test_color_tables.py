@@ -120,3 +120,10 @@ def test_registering_twice_is_harmless():
     register_colormaps()
     register_colormaps()
     assert "hmimag" in colormaps
+
+
+def test_gamma_channel_matches_a_power_law():
+    cmap = aia_color_table(171 * u.angstrom)
+    x = np.linspace(0.0, 1.0, 256)
+    expected = np.clip(x**1.2, 0.0, 1.0)
+    assert np.allclose(cmap(x)[:, 0], expected, atol=1e-2)

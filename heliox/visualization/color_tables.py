@@ -10,11 +10,19 @@ Each table is built from three piecewise-linear curves, one per colour channel,
 in the same way the SolarSoft IDL colour tables are defined.
 """
 
-import numpy as np
 from matplotlib import colormaps
 from matplotlib.colors import LinearSegmentedColormap
 
 import astropy.units as u
+
+from heliox._core.visualization import (
+    aia_exponents,
+    aia_wavelengths,
+    bipolar_channels,
+    gamma_curve,
+    linear_curve,
+    segment_data,
+)
 
 __all__ = [
     "aia_color_table",
@@ -25,38 +33,14 @@ __all__ = [
 ]
 
 
-def _gamma_table(exponent, scale=1.0):
-    """A single channel curve of the form ``scale * x ** exponent``."""
-    x = np.linspace(0.0, 1.0, 256)
-    return np.clip(scale * x**exponent, 0.0, 1.0)
-
-
 def _make_cmap(name, red, green, blue):
     """Build a colormap from three 256-element channel curves."""
-    x = np.linspace(0.0, 1.0, 256)
     segments = {
-        "red": [(xi, ri, ri) for xi, ri in zip(x, red, strict=True)],
-        "green": [(xi, gi, gi) for xi, gi in zip(x, green, strict=True)],
-        "blue": [(xi, bi, bi) for xi, bi in zip(x, blue, strict=True)],
+        "red": segment_data(red),
+        "green": segment_data(green),
+        "blue": segment_data(blue),
     }
     return LinearSegmentedColormap(name, segments, N=256)
-
-
-# The channel exponents that give each AIA passband its familiar colour. A
-# smaller exponent brightens a channel, so the channel with the smallest
-# exponent dominates the appearance.
-_AIA_CHANNELS = {
-    1600: (0.75, 0.75, 1.00),
-    1700: (0.75, 1.00, 1.50),
-    4500: (0.70, 0.90, 1.30),
-    94: (1.50, 1.00, 0.60),
-    131: (1.00, 0.60, 0.90),
-    171: (1.20, 0.70, 1.60),
-    193: (0.80, 1.10, 1.60),
-    211: (0.90, 1.30, 0.80),
-    304: (0.70, 1.50, 1.60),
-    335: (1.40, 1.10, 0.70),
-}
 
 
 def aia_color_table(wavelength):
@@ -91,11 +75,14 @@ def aia_color_table(wavelength):
     except (TypeError, u.UnitsError) as exc:
         raise ValueError("The wavelength must be a quantity in angstroms.") from exc
 
-    if angstrom not in _AIA_CHANNELS:
-        raise ValueError(f"{angstrom} is not an AIA channel. Choose from {sorted(_AIA_CHANNELS)}.")
+    exponents = aia_exponents(angstrom)
+    if exponents is None:
+        raise ValueError(
+            f"{angstrom} is not an AIA channel. Choose from {sorted(aia_wavelengths())}."
+        )
 
-    r, g, b = _AIA_CHANNELS[angstrom]
-    return _make_cmap(f"sdoaia{angstrom}", _gamma_table(r), _gamma_table(g), _gamma_table(b))
+    r, g, b = (gamma_curve(exponent) for exponent in exponents)
+    return _make_cmap(f"sdoaia{angstrom}", r, g, b)
 
 
 def hmi_mag_color_table():
@@ -110,30 +97,27 @@ def hmi_mag_color_table():
     -------
     `matplotlib.colors.LinearSegmentedColormap`
     """
-    x = np.linspace(0.0, 1.0, 256)
+    x = linear_curve()
     return _make_cmap("hmimag", x, x, x)
 
 
 def _bipolar_table():
     """A blue-white-red table, useful for anything signed."""
-    x = np.linspace(0.0, 1.0, 256)
-    red = np.clip(2 * x, 0, 1)
-    blue = np.clip(2 * (1 - x), 0, 1)
-    green = 1 - np.abs(2 * x - 1)
+    red, green, blue = bipolar_channels()
     return _make_cmap("heliox_bipolar", red, green, blue)
 
 
 def _soho_lasco_table(detector):
     """The blue-white tables used by the LASCO coronagraphs."""
     if detector.upper() == "C2":
-        return _make_cmap("soholasco2", _gamma_table(1.4), _gamma_table(1.0), _gamma_table(0.7))
-    return _make_cmap("soholasco3", _gamma_table(0.8), _gamma_table(1.0), _gamma_table(1.4))
+        return _make_cmap("soholasco2", gamma_curve(1.4), gamma_curve(1.0), gamma_curve(0.7))
+    return _make_cmap("soholasco3", gamma_curve(0.8), gamma_curve(1.0), gamma_curve(1.4))
 
 
 def _build_registry():
     """Build the dictionary of every named heliox colour table."""
     tables = {}
-    for angstrom in _AIA_CHANNELS:
+    for angstrom in aia_wavelengths():
         tables[f"sdoaia{angstrom}"] = aia_color_table(angstrom * u.angstrom)
     tables["hmimag"] = hmi_mag_color_table()
     tables["heliox_bipolar"] = _bipolar_table()
