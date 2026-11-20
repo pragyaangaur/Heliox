@@ -113,6 +113,11 @@ def test_extract_waveunit_gives_up_gracefully():
     assert extract_waveunit({"wavelnth": 171}) is None
 
 
+def test_waveunit_whitespace_follows_python_rules():
+    assert extract_waveunit({"waveunit": "\x1cnm\x1f"}) == "nm"
+    assert extract_waveunit({"comment": "in\x1cnanometer"}) == "nm"
+
+
 def test_unrecognised_waveunit_is_passed_through():
     assert extract_waveunit({"waveunit": "furlongs"}) == "furlongs"
 
@@ -125,6 +130,12 @@ def test_detect_filetype_falls_back_to_the_extension(tmp_path):
     path = tmp_path / "data.fits"
     path.write_bytes(b"not really a fits file, but named like one")
     assert detect_filetype(path) == "fits"
+
+
+def test_detect_filetype_recognises_jpeg2000_magic(tmp_path):
+    path = tmp_path / "data.bin"
+    path.write_bytes(b"\x00\x00\x00\x0cjP  \r\n\x87\n")
+    assert detect_filetype(path) == "jp2"
 
 
 def test_detect_filetype_gives_up_on_unknown_files(tmp_path):

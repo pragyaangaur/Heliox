@@ -14,6 +14,7 @@ import numpy as np
 
 from astropy.io import fits
 
+from heliox._core import io as _rust
 from heliox.util.exceptions import HelioxMetadataWarning
 from heliox.util.metadata import MetaDict
 
@@ -21,6 +22,9 @@ __all__ = ["read", "write", "get_header", "header_to_fits", "extract_waveunit"]
 
 #: A single image and its metadata, as returned by `read`.
 HDUPair = collections.namedtuple("HDUPair", ["data", "header"])
+
+#: Keywords of the cards that hold free text, collapsed by `get_header`.
+_COMMENTARY = ("COMMENT", "HISTORY")
 
 
 def read(filepath, hdus=None, memmap=None, **kwargs):
@@ -89,26 +93,21 @@ def get_header(hdu):
     `~heliox.util.metadata.MetaDict`
     """
     header = hdu.header if hasattr(hdu, "header") else hdu
+    cards = list(header.cards)
+    keywords = [card.keyword for card in cards]
+    texts = [
+        str(card.value) if key in _COMMENTARY else ""
+        for key, card in zip(keywords, cards, strict=True)
+    ]
+    entries, comment, history = _rust.collapse_header(keywords, texts)
 
     meta = MetaDict()
-    comments = []
-    history = []
-
-    for card in header.cards:
-        key = card.keyword
-        if key == "COMMENT":
-            comments.append(str(card.value).strip())
-        elif key == "HISTORY":
-            history.append(str(card.value).strip())
-        elif key == "":
-            continue
-        else:
-            meta[key] = card.value
-
-    if comments:
-        meta["comment"] = "\n".join(comments)
-    if history:
-        meta["history"] = "\n".join(history)
+    for key, index in entries:
+        meta[key] = cards[index].value
+    if comment is not None:
+        meta["comment"] = comment
+    if history is not None:
+        meta["history"] = history
 
     waveunit = extract_waveunit(meta)
     if waveunit is not None:
@@ -188,22 +187,6 @@ def write(filepath, data, header, hdu_type=None, **kwargs):
     fits.HDUList([hdu]).writeto(filepath, **kwargs)
 
 
-#: Recognised spellings of wavelength units, mapped onto their canonical names.
-_WAVEUNITS = {
-    "angstrom": "Angstrom",
-    "angstroms": "Angstrom",
-    "a": "Angstrom",
-    "nm": "nm",
-    "nanometer": "nm",
-    "nanometers": "nm",
-    "um": "um",
-    "micron": "um",
-    "micrometer": "um",
-    "mm": "mm",
-    "m": "m",
-}
-
-
 def extract_waveunit(meta):
     """
     Work out the unit of the ``WAVELNTH`` keyword.
@@ -232,12 +215,7 @@ def extract_waveunit(meta):
     """
     raw = meta.get("waveunit")
     if raw is not None:
-        candidate = str(raw).strip().lower()
-        return _WAVEUNITS.get(candidate, str(raw).strip())
+        return _rust.extract_waveunit(str(raw), None)
 
     comment = meta.get("comment")
-    if comment:
-        for word in str(comment).lower().replace(",", " ").split():
-            if word in _WAVEUNITS:
-                return _WAVEUNITS[word]
-    return None
+    return _rust.extract_waveunit(None, str(comment) if comment else None)

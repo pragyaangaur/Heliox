@@ -5,6 +5,7 @@ import inspect
 import textwrap
 import warnings
 
+from heliox._core import util as _rust
 from heliox.util.exceptions import HelioxDeprecationWarning
 
 __all__ = ["deprecated", "cached_property_based_on", "add_common_docstring", "sunpy_compatible"]
@@ -32,10 +33,7 @@ def deprecated(since, message="", alternative=""):
     """
 
     def decorate(obj):
-        name = obj.__name__
-        text = message or f"{name} is deprecated as of heliox {since} and will be removed."
-        if alternative:
-            text += f" Use {alternative} instead."
+        text = _rust.deprecation_text(obj.__name__, f"{since}", message or "", alternative or "")
 
         if inspect.isclass(obj):
             original_init = obj.__init__
@@ -54,7 +52,7 @@ def deprecated(since, message="", alternative=""):
                 warnings.warn(text, HelioxDeprecationWarning, stacklevel=2)
                 return obj(*args, **kwargs)
 
-        wrapper.__doc__ = f"{obj.__doc__ or ''}\n\n.. deprecated:: {since}\n    {text}\n"
+        wrapper.__doc__ = _rust.deprecated_docstring(obj.__doc__ or "", f"{since}", text)
         return wrapper
 
     return decorate

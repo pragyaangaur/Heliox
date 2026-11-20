@@ -14,6 +14,7 @@ import numbers
 
 import astropy.units as u
 
+from heliox._core.net import sum_of_products
 from heliox.time import TimeRange, parse_time
 
 __all__ = [
@@ -367,23 +368,28 @@ def to_sum_of_products(query):
     >>> len(to_sum_of_products(query))
     2
     """
-    if isinstance(query, AttrOr):
-        terms = []
-        for alternative in query.attrs:
-            terms.extend(to_sum_of_products(alternative))
-        return terms
-    if isinstance(query, AttrAnd):
-        flattened = []
-        for each in query.attrs:
-            if isinstance(each, (AttrAnd, AttrOr)):
-                nested = to_sum_of_products(each)
-                if len(nested) != 1:
-                    raise ValueError(
-                        "This query could not be flattened; combine the "
-                        "alternatives with | at the top level instead."
-                    )
-                flattened.extend(nested[0])
-            else:
-                flattened.append(each)
-        return [flattened]
-    return [[query]]
+    leaves = []
+    nodes = []
+    _encode(query, leaves, nodes)
+    return [[leaves[index] for index in term] for term in sum_of_products(nodes)]
+
+
+# Node kinds understood by the Rust reduction in ``heliox._core.net``.
+_LEAF, _AND, _OR = 0, 1, 2
+
+
+def _encode(query, leaves, nodes):
+    """
+    Append ``query`` to ``nodes`` as a post-order list of ``(kind, children)``.
+
+    A leaf stores its position in ``leaves`` as its only child. Returns the
+    index of the node that was added.
+    """
+    if isinstance(query, (AttrAnd, AttrOr)):
+        kind = _AND if isinstance(query, AttrAnd) else _OR
+        children = [_encode(each, leaves, nodes) for each in query.attrs]
+        nodes.append((kind, children))
+    else:
+        leaves.append(query)
+        nodes.append((_LEAF, [len(leaves) - 1]))
+    return len(nodes) - 1

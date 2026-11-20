@@ -18,6 +18,7 @@ from astropy.io import fits
 from astropy.table import Table
 from astropy.time import Time
 
+from heliox._core import timeseries as _core_timeseries
 from heliox.time import parse_time
 from heliox.timeseries.metadata import TimeSeriesMetaData
 from heliox.timeseries.timeseriesbase import GenericTimeSeries
@@ -254,13 +255,8 @@ def _read_csv(filepath, **kwargs):
     """
     meta = MetaDict()
     with open(filepath) as stream:
-        for line in stream:
-            if not line.startswith("#"):
-                break
-            body = line.lstrip("#").strip()
-            if ":" in body:
-                key, _, value = body.partition(":")
-                meta[key.strip()] = value.strip()
+        for key, value in _core_timeseries.header_pairs(stream):
+            meta[key] = value
 
     frame = pd.read_csv(filepath, comment="#", **kwargs)
     time_column = next(

@@ -9,6 +9,7 @@
 
 mod carrington;
 mod ephemeris;
+mod nutation;
 mod rootfind;
 mod rotation;
 
@@ -296,5 +297,7 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(limb_darkening, &module)?)?;
     module.add_function(wrap_pyfunction!(limb_darkening_coefficients, &module)?)?;
     module.add_function(wrap_pyfunction!(sunspot_flux, &module)?)?;
+    module.add_function(wrap_pyfunction!(nutation::py_nut06a, &module)?)?;
+    module.add_function(wrap_pyfunction!(nutation::py_obl06, &module)?)?;
     Ok(())
 }
