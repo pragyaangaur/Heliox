@@ -12,6 +12,7 @@ import numpy as np
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 
+from heliox._core import maps as _core_maps
 from heliox.coordinates import Helioprojective
 
 __all__ = [
@@ -55,7 +56,8 @@ def all_pixel_indices_from_map(smap):
     >>> all_pixel_indices_from_map(aia).shape
     (2, 512, 512)
     """
-    return np.meshgrid(np.arange(smap.data.shape[1]), np.arange(smap.data.shape[0])) * u.pix
+    rows, columns = smap.data.shape
+    return _core_maps.pixel_grid(rows, columns, 0.0) * u.pix
 
 
 def all_coordinates_from_map(smap):
@@ -113,8 +115,8 @@ def all_corner_coords_from_map(smap):
     `~astropy.coordinates.SkyCoord`
     """
     rows, columns = smap.data.shape
-    x, y = np.meshgrid(np.arange(columns + 1), np.arange(rows + 1))
-    return smap.pixel_to_world((x - 0.5) * u.pix, (y - 0.5) * u.pix)
+    x, y = _core_maps.pixel_grid(rows + 1, columns + 1, -0.5)
+    return smap.pixel_to_world(x * u.pix, y * u.pix)
 
 
 def map_edges(smap):
@@ -133,14 +135,31 @@ def map_edges(smap):
         an array of ``(x, y)`` pixel pairs.
     """
     rows, columns = smap.data.shape
-    x = np.arange(columns)
-    y = np.arange(rows)
+    bottom, top, left, right = _core_maps.edge_pixels(rows, columns)
     return {
-        "bottom": np.stack([x, np.zeros(columns, dtype=int)], axis=-1) * u.pix,
-        "top": np.stack([x, np.full(columns, rows - 1, dtype=int)], axis=-1) * u.pix,
-        "left": np.stack([np.zeros(rows, dtype=int), y], axis=-1) * u.pix,
-        "right": np.stack([np.full(rows, columns - 1, dtype=int), y], axis=-1) * u.pix,
+        "bottom": bottom * u.pix,
+        "top": top * u.pix,
+        "left": left * u.pix,
+        "right": right * u.pix,
     }
+
+
+def _disk_arrays(coordinates):
+    """
+    The Tx and Ty of some coordinates, and the solar radius, in arcseconds.
+
+    The three arrays are broadcast to a common shape, which is what the Rust
+    disc tests expect.
+    """
+    tx = np.asarray(coordinates.Tx.to_value(u.arcsec))
+    ty = np.asarray(coordinates.Ty.to_value(u.arcsec))
+    radius = np.asarray(solar_angular_radius(coordinates).to_value(u.arcsec))
+    return np.broadcast_arrays(tx, ty, radius)
+
+
+def _pixel_values(quantity):
+    """The values of a pixel quantity as a float array, which the Rust grid tests take."""
+    return np.asarray(quantity.to_value(u.pix), dtype=float)
 
 
 def solar_angular_radius(coordinates):
@@ -197,8 +216,7 @@ def coordinate_is_on_solar_disk(coordinates):
     if not isinstance(frame, Helioprojective):
         raise ValueError("This test needs helioprojective coordinates.")
 
-    separation = np.sqrt(coordinates.Tx**2 + coordinates.Ty**2)
-    return separation < solar_angular_radius(coordinates)
+    return _core_maps.on_disk_mask(*_disk_arrays(coordinates))
 
 
 def contains_full_disk(smap):
@@ -261,12 +279,8 @@ def contains_coordinate(smap, coordinates):
     `numpy.ndarray` of `bool`
     """
     x, y = smap.world_to_pixel(coordinates)
-    x = x.to_value(u.pix)
-    y = y.to_value(u.pix)
     rows, columns = smap.data.shape
-    with np.errstate(invalid="ignore"):
-        inside = (x >= -0.5) & (x <= columns - 0.5) & (y >= -0.5) & (y <= rows - 0.5)
-    return inside
+    return _core_maps.inside_pixel_mask(_pixel_values(x), _pixel_values(y), rows, columns)
 
 
 def is_all_off_disk(smap):
@@ -340,16 +354,15 @@ def on_disk_bounding_coordinates(smap):
     ValueError
         If no part of the map falls on the disc.
     """
-    coordinates = all_coordinates_from_map(smap)
-    on_disk = coordinate_is_on_solar_disk(coordinates)
-    if not np.any(on_disk):
+    tx, ty, radius = _disk_arrays(all_coordinates_from_map(smap))
+    extent = _core_maps.disk_extent(tx, ty, _core_maps.on_disk_mask(tx, ty, radius))
+    if extent is None:
         raise ValueError("No part of this map falls on the solar disc.")
 
-    tx = coordinates.Tx[on_disk]
-    ty = coordinates.Ty[on_disk]
+    tx_min, tx_max, ty_min, ty_max = extent
     return SkyCoord(
-        [tx.min().to_value(u.arcsec), tx.max().to_value(u.arcsec)] * u.arcsec,
-        [ty.min().to_value(u.arcsec), ty.max().to_value(u.arcsec)] * u.arcsec,
+        [tx_min, tx_max] * u.arcsec,
+        [ty_min, ty_max] * u.arcsec,
         frame=smap.coordinate_frame,
     )
 
@@ -382,7 +395,6 @@ def sample_at_coords(smap, coordinates):
         raise ValueError("Some of those coordinates fall outside the map.")
 
     x, y = smap.world_to_pixel(coordinates)
-    columns = np.rint(x.to_value(u.pix)).astype(int)
-    rows = np.rint(y.to_value(u.pix)).astype(int)
+    columns, rows = _core_maps.nearest_pixel_indices(_pixel_values(x), _pixel_values(y))
     values = smap.data[rows, columns]
     return u.Quantity(values, smap.unit) if smap.unit else values
