@@ -1,6 +1,11 @@
 //! The `image` submodule of `heliox._core`.
 //!
-//! Add new functions to this folder and register each one in `register`.
+//! Resampling and affine transforms, with the interpolation they share. The
+//! interpolation follows `scipy.ndimage.map_coordinates`.
+
+pub(crate) mod interpolate;
+mod resample;
+mod transform;
 
 use pyo3::prelude::*;
 
@@ -15,5 +20,7 @@ fn _ping() -> &'static str {
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "image")?;
     module.add_function(wrap_pyfunction!(_ping, &module)?)?;
+    module.add_function(wrap_pyfunction!(resample::resample, &module)?)?;
+    module.add_function(wrap_pyfunction!(transform::affine_transform, &module)?)?;
     Ok(())
 }
