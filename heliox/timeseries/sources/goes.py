@@ -54,6 +54,11 @@ def flare_class(flux):
         else np.asarray(flux, dtype=float)
     )
 
+    if values.ndim > 1:
+        raise ValueError(
+            "The truth value of an array with more than one element is ambiguous. "
+            "Use a.any() or a.all()"
+        )
     labels = _core_timeseries.flare_labels(np.asarray(values, dtype=float))
 
     return labels[0] if np.ndim(flux) == 0 else labels
