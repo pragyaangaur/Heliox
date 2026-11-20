@@ -34,6 +34,21 @@ def file_tree(tmp_path):
     return tree
 
 
+# The Rust path helpers are used only on POSIX, see heliox.map.map_factory.
+rust_paths_only = pytest.mark.skipif(
+    os.name != "posix", reason="the Rust path helpers are used only on POSIX"
+)
+
+
+@pytest.fixture(params=["rust", "python"])
+def path_backend(request, monkeypatch):
+    """Run a factory test with the Rust path helpers, and with the standard library ones."""
+    if request.param == "rust" and os.name != "posix":
+        pytest.skip("the Rust path helpers are used only on POSIX")
+    monkeypatch.setattr("heliox.map.map_factory._RUST_PATHS", request.param == "rust")
+
+
+@rust_paths_only
 def test_path_kind_tells_directories_files_patterns_and_missing_paths(file_tree):
     assert core.path_kind(str(file_tree)) == "directory"
     assert core.path_kind(str(file_tree / "a.fits")) == "file"
@@ -41,6 +56,7 @@ def test_path_kind_tells_directories_files_patterns_and_missing_paths(file_tree)
     assert core.path_kind(str(file_tree / "nothing.fits")) == "missing"
 
 
+@rust_paths_only
 def test_directory_files_are_sorted_regular_files_only(file_tree):
     names = core.directory_files(str(file_tree))
     assert names == sorted(names)
@@ -66,11 +82,13 @@ def test_directory_files_are_sorted_regular_files_only(file_tree):
         "no*match",
     ],
 )
+@rust_paths_only
 def test_glob_paths_match_python_glob(file_tree, pattern):
     full = str(file_tree / pattern)
     assert core.glob_paths(full) == sorted(glob.glob(full))
 
 
+@rust_paths_only
 def test_glob_paths_leave_out_hidden_names_unless_asked(file_tree):
     assert not any(
         os.path.basename(p).startswith(".") for p in core.glob_paths(str(file_tree / "*"))
@@ -78,7 +96,7 @@ def test_glob_paths_leave_out_hidden_names_unless_asked(file_tree):
     assert str(file_tree / ".hidden.fits") in core.glob_paths(str(file_tree / ".*.fits"))
 
 
-def test_the_factory_expands_a_directory_and_a_glob(file_tree, monkeypatch):
+def _record_files_read(monkeypatch):
     seen = []
 
     def fake_read(filename, **kwargs):
@@ -86,6 +104,18 @@ def test_the_factory_expands_a_directory_and_a_glob(file_tree, monkeypatch):
         return [(np.zeros((2, 2)), {})]
 
     monkeypatch.setattr("heliox.map.map_factory.read_file", fake_read)
+    return seen
+
+
+def test_the_factory_expands_a_directory(file_tree, monkeypatch, path_backend):
+    seen = _record_files_read(monkeypatch)
+    MapFactory()._parse_path(str(file_tree))
+    expected = sorted(name for name in os.listdir(file_tree) if (file_tree / name).is_file())
+    assert seen == expected
+
+
+def test_the_factory_expands_a_glob(file_tree, monkeypatch, path_backend):
+    seen = _record_files_read(monkeypatch)
     MapFactory()._parse_path(str(file_tree / "c?.fits"))
     assert seen == ["c1.fits", "c2.fits"]
     seen.clear()
@@ -93,7 +123,7 @@ def test_the_factory_expands_a_directory_and_a_glob(file_tree, monkeypatch):
     assert seen == sorted(seen) and "a.fits" in seen and "sub" not in seen
 
 
-def test_the_factory_raises_for_an_unmatched_pattern(file_tree):
+def test_the_factory_raises_for_an_unmatched_pattern(file_tree, path_backend):
     with pytest.raises(ValueError, match="matched no files"):
         MapFactory()._parse_path(str(file_tree / "no*match"))
 

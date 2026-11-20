@@ -3,6 +3,9 @@
 //!
 //! The glob matcher follows Python's `glob.glob` without recursion. A hidden name (one that
 //! starts with a dot) is only matched by a pattern that also starts with a dot.
+//!
+//! The paths are POSIX paths. The Python factory calls these helpers only on POSIX systems, and
+//! uses the standard library on Windows, where the separators and the case rules differ.
 
 use std::fs;
 
