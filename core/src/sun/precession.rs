@@ -66,7 +66,8 @@
 //!
 //! The precession angles and rotations that `eraMoon98` uses to take the Moon into
 //! the GCRS, from ERFA's `eraPfw06`, `eraRz`, `eraRx` and `eraRxp`. The products
-//! are fused where the C build fuses them, so the results match astropy exactly.
+//! are fused where the C build on macOS arm64 fuses them. Results match astropy on that
+//! build exactly, and to about 1e-13 au on platforms whose build does not fuse.
 
 /// Julian date of the epoch J2000.0.
 const DJ00: f64 = 2_451_545.0;
