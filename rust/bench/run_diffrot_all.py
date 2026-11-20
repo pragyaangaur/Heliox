@@ -1,7 +1,7 @@
 """Run the differential rotation benchmarks under the memory watchdog and print markdown tables.
 
 usage: python run_diffrot_all.py --python VENV_PYTHON --memwatch PATH_TO_memwatch.py --data SUNPY_SAMPLEDIR
-                                 [--limit-gb 4] [--sizes 512 1024]
+                                 [--limit-gb 4] [--sizes 512 1024 crop512]
 
 Run it with any Python. It starts one watched process at a time for every implementation, case and
 size, so each peak memory figure belongs to one implementation.
@@ -39,6 +39,10 @@ def run(args, cmd, env):
     return res, (m.group(1) if m else None), killed
 
 
+def label_of(size):
+    return "512x512 on-disc crop" if size == "crop512" else f"{size}x{size}"
+
+
 def fmt_time(t):
     return f"{t * 1e3:.2f} ms" if t < 1 else f"{t:.3f} s"
 
@@ -49,7 +53,7 @@ def main():
     ap.add_argument("--memwatch", required=True)
     ap.add_argument("--data", required=True)
     ap.add_argument("--limit-gb", default="4")
-    ap.add_argument("--sizes", type=int, nargs="*", default=[512, 1024])
+    ap.add_argument("--sizes", nargs="*", default=["512", "1024", "crop512"])
     a = ap.parse_args()
 
     base = {}
@@ -67,12 +71,12 @@ def main():
     print("| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |")
     for size, title, label, impl, res, rss, killed in rows:
         if killed or res is None:
-            print(f"| {size}x{size} | {title} | {label} | killed at the memory limit | | >{rss} | | |")
+            print(f"| {label_of(size)} | {title} | {label} | killed at the memory limit | | >{rss} | | |")
             continue
         ref = next(r[4] for r in rows if r[0] == size and r[1] == title and r[3] == "original")
         speed = "1x" if impl == "original" else f"{ref['median_s'] / res['median_s']:.1f}x"
         rel = "reference" if impl == "original" else f"{abs(res['checksum'] - ref['checksum']) / abs(ref['checksum']):.1e}"
-        print(f"| {size}x{size} | {title} | {label} | {fmt_time(res['median_s'])} | {speed} | {res['peak_rss_gb']:.2f} | {res['nan_count']} | {rel} |")
+        print(f"| {label_of(size)} | {title} | {label} | {fmt_time(res['median_s'])} | {speed} | {res['peak_rss_gb']:.2f} | {res['nan_count']} | {rel} |")
     print("\nPeak RSS of a process that only loads the map and imports sunpy, GB:", {k: v for k, v in base.items()})
 
 

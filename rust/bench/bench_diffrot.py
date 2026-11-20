@@ -5,8 +5,9 @@ usage:
 
 `rotate` times the whole `differential_rotate` of a full disc AIA 171 map (rotation by 6 hours, the
 Earth observer assumed). `inverse` times only the per pixel inverse map that `skimage.transform.warp`
-calls, on the pixel grid of the map. SIZE is 1024 (the real sample image) or 512 (the same image
-resampled by `profiling/sunpy/common.py`). One implementation runs per process, so the peak
+calls, on the pixel grid of the map. SIZE is 1024 (the real sample image), 512 (the same image
+resampled by `profiling/sunpy/common.py`) or crop512 (a 512 x 512 crop of the real image that is
+entirely on the disc). One implementation runs per process, so the peak
 memory of each is its own, and `baseline` only loads the map. Set RAYON_NUM_THREADS=1 for the
 single thread Rust figure. The sample data directory comes from SUNPY_SAMPLEDIR.
 """
@@ -44,12 +45,17 @@ def timed(fn, repeats, warmup=2):
 
 
 def main():
-    impl, kind, size = sys.argv[1], sys.argv[2], int(sys.argv[3])
+    impl, kind, size = sys.argv[1], sys.argv[2], sys.argv[3]
     repeats = int(sys.argv[4]) if len(sys.argv) > 4 else 5
     import astropy.units as u
     from common import make_map
 
-    smap = make_map(size)
+    if size == "crop512":
+        # A 512 x 512 crop of the real image that is entirely on the disc, so no pixel of the
+        # output is NaN for being off the disc and the kernel cannot exit early on them.
+        smap = make_map(1024).submap([256, 256] * u.pix, top_right=[767, 767] * u.pix)
+    else:
+        smap = make_map(int(size))
     result = {"implementation": impl, "kind": kind, "size": size, "threads": os.environ.get("RAYON_NUM_THREADS", "all")}
     if impl == "baseline":
         result["peak_rss_gb"] = round(maxrss_gb(), 3)
