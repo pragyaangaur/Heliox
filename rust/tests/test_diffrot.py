@@ -307,7 +307,7 @@ def test_kernel_matches_exact_arithmetic(aia):
         sunpy_error.append(max(abs(float(truth[k] - expected[i, k])) for k in (0, 1)))
     assert len(rust_error) > 100
     assert max(rust_error) < 2e-10, max(rust_error)
-    # sunpy's own error is larger than the Rust error, by a factor of about 30 at the median.
+    # sunpy's own error is larger than the Rust error (by about 100 times at the median here).
     assert np.median(sunpy_error) > 5 * np.median(rust_error)
 
 

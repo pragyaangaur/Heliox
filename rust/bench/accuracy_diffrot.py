@@ -7,7 +7,7 @@ directory with SUNPY_SAMPLEDIR). The first table is the difference between the s
 coordinates of the Rust inverse map and sunpy's `_warp_sun_coordinates` over the whole pixel grid
 of the 1024 x 1024 map, in pixels. The second is the difference between the rotated images (float32
 as in the sample file, and float64 for the last rows) together with the number of pixels whose NaN
-status differs. Run it under the memory watchdog like the other scripts.
+status differs. The relative difference is taken against max(|value|, 1). Run it under the memory watchdog like the other scripts.
 """
 
 import sys
@@ -44,8 +44,8 @@ def main():
         print(f"| {name} | {ok.sum()} | {masks} | {np.median(d):.1e} | {np.percentile(d, 99):.1e} | {d.max():.1e} |")
 
     print("\nRotated images\n")
-    print("| Case | dtype | NaN status differs | Max abs difference | Max relative difference | Max difference over local gradient |")
-    print("| --- | --- | ---: | ---: | ---: | ---: |")
+    print("| Case | dtype | NaN status differs | Max abs difference | Max relative difference |")
+    print("| --- | --- | ---: | ---: | ---: |")
     aia64 = sunpy_map.Map(aia.data.astype(np.float64), aia.meta)
     cases = list(t.IMAGE_SCENARIOS.items()) + [("time +1h, float64", None), ("time -2d, float64", None)]
     for name, spec in cases:
@@ -63,9 +63,8 @@ def main():
         masks = int((np.isnan(x) != np.isnan(y)).sum())
         ok = ~np.isnan(x)
         d = np.abs(y[ok] - x[ok])
-        g = t.local_gradient(x)[ok]
         rel = (d / np.maximum(np.abs(x[ok]), 1.0)).max()
-        print(f"| {name} | {e.data.dtype} | {masks} | {d.max():.2e} | {rel:.1e} | {(d / np.maximum(g, 1e-300)).max():.1e} |")
+        print(f"| {name} | {e.data.dtype} | {masks} | {d.max():.2e} | {rel:.1e} |")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # heliox-rs
 
-Rust replacements for two slow Python kernels, the ASDA gamma computation in sunkit-image and the MEM entropy proximal step in xrayvision (the second one is described at the end), packaged with PyO3 and maturin. It lives in this folder so that the pure Python Heliox package at the repository root, with its `pyproject.toml` and CI, stays as it is.
+Rust replacements for three slow Python kernels, the ASDA gamma computation in sunkit-image, the MEM entropy proximal step in xrayvision and the coordinate chain of sunpy's `differential_rotate` (the second and third are described at the end), packaged with PyO3 and maturin. It lives in this folder so that the pure Python Heliox package at the repository root, with its `pyproject.toml` and CI, stays as it is.
 
 The profiling in `profiling/` found that `sunkit_image.asda.calculate_gamma_values` (sunkit-image 0.7.0) spends nearly all of its time in a Python loop over pixels. It takes about 4.7 s on the real 512x1024 test velocity field. `heliox_rs.asda.calculate_gamma_values` has the same signature, defaults, argument checks and return value, and it runs the stencil in Rust, in parallel over rows, with the GIL released. Nothing here is meant for upstream.
 
@@ -128,3 +128,85 @@ Each implementation runs in its own process under the memory watchdog (4 GB limi
 Every row gave an identical result to the original (a hash of the proximal results or of the image). Peak RSS is the maximum resident size of the process, read from `getrusage`. The `mem` rows include about 0.65 GB for the STIX data and the imports of stixpy and xrayvision, which every implementation pays equally, so the kernel itself adds no measurable memory. The proximal step rows load only the captured arguments and astropy.
 
 The whole `mem` gain is smaller than the gain on the proximal step because the rest of the MEM loop (the matrix products with the Fourier matrix and the Python code around them) is untouched. At 129 by 129 the 374 proximal calls cost about 0.16 s with all cores, out of 0.43 s. A single Rust thread is 3.2 times faster than plain NumPy on the proximal step, and all cores add another 3 times on top of that. The kernel does the whole step in one pass over each block without temporary arrays, and replacing the branches of the bracket update with selects made the single thread kernel 2.7 times faster.
+
+## Coordinate chain of sunpy's differential_rotate
+
+The profiling in `profiling/` found that `sunpy.physics.differential_rotation.differential_rotate` (sunpy 8.0.1) takes about 330 ms on a 1024x1024 AIA map, and that about 70 percent of it is NumPy and astropy temporaries in the per pixel coordinate chain inside `_warp_sun_coordinates`, with about 20 percent in wcslib and 5 percent in the scikit-image warp. `heliox_rs.diffrot.differential_rotate(smap, observer=None, time=None, **diff_rot_kwargs)` has the same signature, defaults, warnings, errors, return type and output metadata. It runs sunpy's own function, so the submap handling, the padding, the header update and the warp are sunpy's, and swaps only the inverse map that `skimage.transform.warp` calls for each output pixel. The swap changes the module global `_warp_sun_coordinates` for the duration of the call, with a lock and a depth count that install it on the first entry and restore the true original on the last exit, so overlapping threads are safe. Nothing here is meant for upstream.
+
+### What runs where
+
+For each output pixel the original goes through the map WCS to helioprojective angles, relabels them as seen by the new observer, finds the point on the solar surface, goes to heliographic Stonyhurst, subtracts the differential rotation, goes back to heliocentric as seen by the map observer, marks the pixel NaN if it is behind the Sun, and goes through the WCS to a source pixel. `src/diffrot.rs` does that chain in one rayon parallel pass with no temporary arrays.
+
+Python does everything that depends only on the observers and the time interval, with sunpy and astropy as the original does: the new observer, the time interval, the rotation rate coefficients, the WCS parameters, the two rotation matrices of the chain (found by transforming unit vectors with sunpy's own transformations, so its conventions are inherited, and checked to be pure rotations without translation), the observer distances and `rsun`. These are passed to Rust as plain numbers. The rotation rate coefficients come from calling sunpy's `differential_rotation` for one second at three latitudes, so every model and frame time that sunpy has is supported without a copy of its table. The set-up costs about 4 ms per call and does not depend on the map size.
+
+### Fallbacks
+
+The kernel supports a two dimensional celestial TAN projection with `HPLN` and `HPLT` axes (AIA, HMI and EUVI style headers) with any PC, CDELT, CRPIX and CRVAL, including a rotated PC matrix and submaps. Everything else is passed to sunpy's own code, so its result and its errors are the original's by construction. The test suite asserts that the Rust kernel is called in every supported case and not called in these ones:
+
+- a WCS that is not that projection, or that has SIP, lookup table distortions or PV parameters,
+- a map whose `coordinate_frame` differs from the frame of its WCS or whose observer time differs from the frame time (the original would transform once more at the end),
+- rotation keyword arguments other than `model` and `frame_time`, or a model sunpy rejects,
+- an observer or time for which sunpy's transformations raise or are not pure rotations (the set-up is wrapped, so any failure there runs the original),
+- an `xy` that is not a float array of shape `(N, 2)`.
+
+### How close it is
+
+This kernel is not bit exact. The original goes through wcslib and astropy representations and the kernel works on unit vectors (which avoids `asin` and `acos` near the pole of the native system, where they lose digits), so the source coordinates agree to rounding. The measurements are over the whole 1024x1024 grid of the real AIA 171 sample image (`python bench/accuracy_diffrot.py`).
+
+| Rotation | Finite pixels | NaN masks differ | Median (px) | 99th percentile (px) | Maximum (px) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| time +1h | 486167 | 0 | 2.9e-11 | 1.7e-10 | 1.0e-08 |
+| time +6h | 485825 | 0 | 1.4e-10 | 1.1e-09 | 4.4e-08 |
+| time -2d | 463622 | 0 | 8.0e-10 | 5.4e-09 | 2.0e-07 |
+| time +14d | 5694 | 0 | 4.9e-09 | 5.6e-08 | 4.5e-07 |
+| Earth at +3d | 435162 | 0 | 1.1e-09 | 7.9e-09 | 9.3e-07 |
+| observer at 60 degrees longitude | 484793 | 0 | 6.6e-10 | 5.5e-09 | 2.7e-07 |
+
+The target of 1e-9 pixel is met for the median in every case and for the 99th percentile for rotations of a few hours, but not for the maximum, and the cause is the original. Its law of cosines for the distance to the solar surface (`Helioprojective.make_3d`) subtracts two numbers of about 1e23 m^2 to get one of about 1e18 m^2, so the distance carries a rounding error of a few millimetres. That is about 1e-9 pixel at the disc centre for a rotation of two days, it grows towards the limb because of the square root, and it reaches several 1e-7 pixel within a pixel of the limb. The kernel computes the distance without that cancellation. To check which of the two is closer to the truth, `test_kernel_matches_exact_arithmetic` evaluates the same chain in 50 digit arithmetic for a few hundred pixels including some at the limb: the kernel is within 3e-11 pixel of the exact result (2e-11 at 14 days), while sunpy is off by 8e-10 at the median and 3e-8 at the maximum on the same pixels. The exact chain shares the matrices that Python passes in, so this tests the per pixel arithmetic, and the comparison with sunpy tests the matrices.
+
+The NaN masks are identical in every case, which includes the off disc pixels for the new observer, the pixels behind the limb for the map observer, and the pixels where the TAN projection is undefined. A pixel could only change status if it lay extremely close to the limb, where the original's own rounding decides, and that did not happen in any test.
+
+For the rotated images the NaN pattern is identical in all 18 cases of `bench/accuracy_diffrot.py` and the differences are:
+
+| Case | dtype | Max abs difference | Max relative difference (against max(\|value\|, 1)) |
+| --- | --- | ---: | ---: |
+| full map, 10 rotations | float32 | 2.4e-04 to 7.8e-03 | 1.1e-07 to 1.2e-07 |
+| 512 crops (centre, corner, limb, off limb) | float32 | 1.2e-04 to 7.8e-03 | 1.2e-07 to 4.2e-07 |
+| rotated PC matrix, whole map and crop | float32 | 1.2e-04 to 1.9e-03 | 1.2e-07 to 4.6e-07 |
+| full map, +1h | float64 | 8.1e-06 | 2.7e-09 |
+| full map, -2d | float64 | 1.8e-04 | 2.2e-08 |
+
+The sample image is float32, so the float32 differences are one to four units in the last place at values up to 1e5 (an interpolated value that lies on a rounding boundary flips by one unit). Bilinear interpolation is linear in the sampling point, so the float64 differences are the coordinate difference times the local gradient. `test_float64_image_difference_is_explained_by_the_coordinate_difference` checks that bound pixel by pixel with the actual coordinate difference and the largest neighbouring source difference. The float32 comparisons use four units in the last place relative to max(|value|, 1) plus the gradient bound with the largest coordinate difference of 2e-6 pixel.
+
+### Limits
+
+Everything above was verified on one NumPy (2.5.5), sunpy 8.0.1, astropy 8.0.3 and scikit-image 0.26.0 on arm64 macOS, with one real image (the AIA 171 sample, plus resampled and cropped versions of it and a rotated header). HMI and EUVI headers were not tested, and no test uses a header with a large CRVAL (the AIA header has a CRVAL of a few thousandths of a degree). A map whose observer is not heliographic Stonyhurst is resolved by astropy before the matrices are built, but only Stonyhurst observers (Earth and a longitude offset observer) were tested. The time interval is taken from `smap.date`, as in the original, and the two rotation matrices are measured once per call, so they follow whatever sunpy's transformations do for that observer pair, as long as they are rotations. The speed figures are for full disc and cropped maps up to 1024x1024. The coordinates are returned for the whole grid at once as an `(N, 2)` array of float64, which is 16 MB at 1024x1024.
+
+### Tests
+
+`tests/test_diffrot.py` has 60 tests, all against the real sunpy functions: the inverse map and the whole map for 10 rotations (time by +1 hour, +6 hours, -2 days and +14 days, Earth at a later time, an observer at 60 degrees longitude, the Snodgrass, Allen, rigid and Howard models, both frame times), 512 crops with off limb pixels, a rotated PC matrix, a masked map and float64 data, the fallbacks, warnings and errors, the module global swap (the test asserts that sunpy sees the Rust function during the call and the original afterwards, and that the Rust kernel was called), overlapping threads, and the 50 digit check. A few tests need `mpmath` (they are skipped without it). They need the sunpy sample data, so set `SUNPY_SAMPLEDIR` to a directory that holds `AIA20110607_063302_0171_lowres.fits` (sunpy downloads it there when it is missing, which needs network access). `cargo test` adds 10 unit tests for the TAN projection, the chain and the rotation.
+
+### Benchmark
+
+```
+python bench/run_diffrot_all.py --python /path/to/venv/bin/python --memwatch /path/to/memwatch.py --data /path/to/sunpy/sample/data
+```
+
+Each implementation runs in its own process under the memory watchdog (4 GB limit), one at a time, on a full disc AIA 171 map, rotated by 6 hours with the Earth observer assumed. The 1024x1024 map is the real sample image and the 512x512 map is the same image resampled by `profiling/sunpy/common.py`. Times are medians of 7 repeats for the original and 21 for Rust after two warm-up calls, on an Apple M4 with 10 cores and 16 GB of memory. "Inverse map only" times the per pixel inverse map alone, on the pixel grid of the map. The single thread rows use `RAYON_NUM_THREADS=1`. Peak RSS is the maximum resident size of the process, read from `getrusage`, and a process that only loads the map and imports sunpy peaks at 0.27 GB.
+
+| Map | Case | Implementation | Median time | Speedup vs original | Peak RSS (GB) |
+| --- | --- | --- | ---: | ---: | ---: |
+| 1024x1024 | `differential_rotate` | sunpy original | 336.8 ms | 1x | 1.10 |
+| 1024x1024 | `differential_rotate` | Rust, 1 thread | 54.0 ms | 6.2x | 0.37 |
+| 1024x1024 | `differential_rotate` | Rust, all cores | 42.5 ms | 7.9x | 0.37 |
+| 1024x1024 | inverse map only | sunpy original | 308.2 ms | 1x | 1.09 |
+| 1024x1024 | inverse map only | Rust, 1 thread | 21.7 ms | 14.2x | 0.34 |
+| 1024x1024 | inverse map only | Rust, all cores | 9.7 ms | 31.8x | 0.34 |
+| 512x512 | `differential_rotate` | sunpy original | 87.8 ms | 1x | 0.52 |
+| 512x512 | `differential_rotate` | Rust, 1 thread | 20.6 ms | 4.3x | 0.34 |
+| 512x512 | `differential_rotate` | Rust, all cores | 17.7 ms | 5.0x | 0.34 |
+| 512x512 | inverse map only | sunpy original | 76.0 ms | 1x | 0.54 |
+| 512x512 | inverse map only | Rust, 1 thread | 8.3 ms | 9.2x | 0.31 |
+| 512x512 | inverse map only | Rust, all cores | 5.3 ms | 14.3x | 0.31 |
+
+Every row has the same number of NaN pixels as the original, and the checksum of the data (the float64 sum of the finite pixels) differs from the original by at most 5.5e-12 relative. The end-to-end gain is 6 to 8 times at 1024x1024, which is inside the 4 to 6 times that was estimated when counting only the coordinate chain and a little above it, and it is limited by what the swap leaves alone. Timing the pieces of the remaining 41 ms one at a time gives about 9 ms for the SciPy interpolation inside `skimage.transform.warp`, 6 ms for the kernel on all cores (20 ms on one), 3.4 ms for the Python set-up, 2.6 ms each for sunpy's `is_all_off_disk` and `contains_full_disk` checks, and 0.7 ms for the pixel grid. That is about 25 ms. The other 16 ms is array reshaping in `warp_coords`, map construction and metadata handling in sunpy and scikit-image, which was not itemised. The Rust inverse map itself is 14 times faster on one thread and 32 times faster on all cores, so a further gain would have to come from the warp and from those checks, which belong to sunpy. At 512x512 the fixed costs are a larger share, so the end-to-end gain is smaller. The peak memory drops from 1.1 GB to 0.37 GB at 1024x1024 because the original builds many astropy temporaries.
