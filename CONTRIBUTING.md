@@ -4,6 +4,8 @@ Thanks for taking a look.
 
 ## Getting set up
 
+Heliox compiles a Rust extension when it is installed, so you need a Rust toolchain from [rustup.rs](https://rustup.rs) as well as Python.
+
 ```bash
 git clone https://github.com/pragyaangaur/heliox
 cd heliox
@@ -19,6 +21,7 @@ ruff check heliox         # linting
 ruff format heliox        # formatting
 sphinx-build -b html docs docs/_build/html -W    # the documentation
 sphinx-build -b doctest docs docs/_build/doctest # the documentation's examples
+cd core && cargo fmt --check && cargo clippy -- -D warnings  # the Rust core
 ```
 
 CI runs all of these on Linux, macOS and Windows across Python 3.10 to 3.13.
