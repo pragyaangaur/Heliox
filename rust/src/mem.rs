@@ -96,12 +96,10 @@ fn step(a: &mut f64, b: &mut f64, y: f64, m: f64, mr: f64, cfg: &Settings) -> f6
     let c = (*a + *b) / 2.0;
     let q = if cfg.reciprocal_divide { c * mr } else { c / m };
     let f_c = (c - y) + cfg.s * q.ln();
-    if f_c <= 0.0 {
-        *a = c;
-    }
-    if f_c >= 0.0 {
-        *b = c;
-    }
+    // Selects instead of branches: the sign of f_c is close to random in the early steps.
+    let (le, ge) = (f_c <= 0.0, f_c >= 0.0);
+    *a = if le { c } else { *a };
+    *b = if ge { c } else { *b };
     *b - *a
 }
 
