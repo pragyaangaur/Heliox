@@ -65,3 +65,8 @@ rust/Cargo.lock.bak
 *.dylib
 *.whl
 rust/bench/results/
+
+# Rust core build output
+core/target/
+heliox/_core*.so
+heliox/_core*.pyd
