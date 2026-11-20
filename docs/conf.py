@@ -78,7 +78,7 @@ except ImportError:
     }
 
 html_title = f"heliox {version} documentation"
-html_baseurl = "https://pragyaangaur.github.io/Heliox/"
+html_baseurl = "https://pragyaangaur.dev/Heliox/"
 html_static_path = []
 
 # -- Doctests ----------------------------------------------------------------

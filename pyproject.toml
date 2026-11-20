@@ -34,6 +34,7 @@ dev = ["heliox[test,docs]", "ruff", "pre-commit"]
 
 [project.urls]
 Homepage = "https://github.com/pragyaangaur/heliox"
+Documentation = "https://pragyaangaur.dev/Heliox/"
 Source = "https://github.com/pragyaangaur/heliox"
 Issues = "https://github.com/pragyaangaur/heliox/issues"
 
