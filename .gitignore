@@ -52,6 +52,7 @@ figures/*
 !figures/observer_parallax.png
 !figures/goes_flare.png
 !figures/annual_ephemeris.png
+!figures/rust_speedups.png
 
 # Local editor and tooling config
 .claude/
