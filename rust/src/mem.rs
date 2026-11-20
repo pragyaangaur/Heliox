@@ -7,9 +7,10 @@
 //!
 //! by bisection on `[a, b]`, starting from `a = 1e-24` and `b = max(y, m)` (with `y` winning only
 //! when `y > m`). The original loops while `max(b - a) > tol`, a single test over the whole array,
-//! so every element is bisected in lockstep for the same number of steps. The kernel keeps that
-//! rule: each step updates all elements, in parallel chunks, and the chunks report the largest
-//! `b - a`. Stopping any element earlier would change its result, so nothing is skipped.
+//! so every element is bisected for the same number of steps. Stopping any element earlier would
+//! change its result, so nothing is skipped. `proximal_entropy_lockstep` is that loop, with each
+//! step split over rayon tasks. `proximal_entropy` reaches the same step count with two parallel
+//! passes instead of one per step, when the input allows it (see its documentation).
 //!
 //! The operations are written in the order of the original:
 //!
