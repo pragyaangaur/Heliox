@@ -1,6 +1,9 @@
 //! The `io` submodule of `heliox._core`.
 //!
-//! Add new functions to this folder and register each one in `register`.
+//! `header` holds the FITS header text logic behind `heliox.io._fits`. Add new
+//! functions to this folder and register each one in `register`.
+
+mod header;
 
 use pyo3::prelude::*;
 
@@ -15,5 +18,7 @@ fn _ping() -> &'static str {
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "io")?;
     module.add_function(wrap_pyfunction!(_ping, &module)?)?;
+    module.add_function(wrap_pyfunction!(header::collapse_header, &module)?)?;
+    module.add_function(wrap_pyfunction!(header::extract_waveunit, &module)?)?;
     Ok(())
 }

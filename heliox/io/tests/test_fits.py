@@ -113,6 +113,11 @@ def test_extract_waveunit_gives_up_gracefully():
     assert extract_waveunit({"wavelnth": 171}) is None
 
 
+def test_waveunit_whitespace_follows_python_rules():
+    assert extract_waveunit({"waveunit": "\x1cnm\x1f"}) == "nm"
+    assert extract_waveunit({"comment": "in\x1cnanometer"}) == "nm"
+
+
 def test_unrecognised_waveunit_is_passed_through():
     assert extract_waveunit({"waveunit": "furlongs"}) == "furlongs"
 
