@@ -5,6 +5,8 @@ import numpy as np
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 
+from heliox._core import coordinates as _rust
+from heliox.coordinates._matrices import _flat
 from heliox.coordinates.frames import Heliocentric
 from heliox.sun import constants
 
@@ -75,27 +77,8 @@ class GreatArc:
         # the vector algebra buys nothing and complicates the normalisation.
         v1 = (self._start_xyz - self._center_xyz).to_value(u.km)
         v2 = (self._end_xyz - self._center_xyz).to_value(u.km)
-        self._radius = np.linalg.norm(v1) * u.km
-
-        self._v1_hat = v1 / np.linalg.norm(v1)
-        v2_hat = v2 / np.linalg.norm(v2)
-
-        # Orthonormal basis for the plane containing the arc.
-        perpendicular = v2_hat - np.dot(v2_hat, self._v1_hat) * self._v1_hat
-        norm = np.linalg.norm(perpendicular)
-        if norm == 0:
-            # The two ends are parallel or antiparallel; any perpendicular will
-            # do, so pick one deterministically.
-            perpendicular = np.cross(self._v1_hat, [0.0, 0.0, 1.0])
-            norm = np.linalg.norm(perpendicular)
-            if norm == 0:
-                perpendicular = np.cross(self._v1_hat, [0.0, 1.0, 0.0])
-                norm = np.linalg.norm(perpendicular)
-        self._v3_hat = perpendicular / norm
-
-        self._angle = np.arctan2(np.dot(v2_hat, self._v3_hat), np.dot(v2_hat, self._v1_hat))
-        if self._angle < 0:
-            self._angle += 2 * np.pi
+        radius, self._v1_hat, self._v3_hat, self._angle = _rust.arc_basis(v1, v2)
+        self._radius = radius * u.km
 
     @staticmethod
     def _to_vector(coord, heliocentric):
@@ -154,11 +137,16 @@ class GreatArc:
         -------
         `~astropy.coordinates.SkyCoord`
         """
-        angles = self.inner_angles.to_value(u.rad)[:, np.newaxis]
-        points = self._radius.to_value(u.km) * (
-            np.cos(angles) * self._v1_hat + np.sin(angles) * self._v3_hat
+        points = (
+            _rust.arc_points(
+                self._radius.to_value(u.km),
+                self._v1_hat,
+                self._v3_hat,
+                self._center_xyz.to_value(u.km),
+                _flat(self.inner_angles.to_value(u.rad)),
+            ).reshape(-1, 3)
+            * u.km
         )
-        points = points * u.km + self._center_xyz
 
         heliocentric = SkyCoord(points[:, 0], points[:, 1], points[:, 2], frame=self._heliocentric)
         return heliocentric.transform_to(self._frame)
@@ -210,17 +198,25 @@ def get_limb_coordinates(observer, rsun=None, resolution=1000):
     # The limb is the circle where the observer's lines of sight are tangent to
     # the sphere. It sits at a distance rsun^2 / d along the line of sight and
     # has radius rsun * sqrt(1 - (rsun/d)^2).
-    ratio = (rsun / distance).to_value(u.dimensionless_unscaled)
-    z = rsun * ratio
-    radius = rsun * np.sqrt(1 - ratio**2)
+    ratio = np.asarray((rsun / distance).to_value(u.dimensionless_unscaled)).item()
+    xs, ys, z = _rust.limb_circle_points(rsun.value, ratio, np.linspace(0, 2 * np.pi, resolution))
 
-    angles = np.linspace(0, 2 * np.pi, resolution) * u.rad
+    unit = rsun.unit
+    shape = (resolution,)
     return SkyCoord(
-        radius * np.cos(angles),
-        radius * np.sin(angles),
-        np.broadcast_to(z, angles.shape, subok=True),
+        xs * unit,
+        ys * unit,
+        np.broadcast_to(z * unit, shape, subok=True),
         frame=Heliocentric(observer=observer, obstime=observer.obstime),
     )
+
+
+def _elementwise(kernel, values, other):
+    """Apply a Rust kernel to two arrays that broadcast together, keeping the shape."""
+    values, other = np.broadcast_arrays(
+        np.asarray(values, dtype=float), np.asarray(other, dtype=float)
+    )
+    return kernel(_flat(values), _flat(other)).reshape(values.shape)[()]
 
 
 def get_rectangle_coordinates(bottom_left, *, top_right=None, width=None, height=None):
@@ -309,10 +305,12 @@ def solar_angle_equivalency(observer):
         raise ValueError("The observer needs a distance from the Sun.")
     distance = observer.spherical.distance
 
-    def to_distance(angle_in_radians):
-        return np.tan(angle_in_radians) * distance.to_value(u.km)
+    distance_in_km = distance.to_value(u.km)
 
-    def to_angle(distance_in_km):
-        return np.arctan(distance_in_km / distance.to_value(u.km))
+    def to_distance(angle_in_radians):
+        return _elementwise(_rust.angles_to_distances, angle_in_radians, distance_in_km)
+
+    def to_angle(distance_in_km_values):
+        return _elementwise(_rust.distances_to_angles, distance_in_km_values, distance_in_km)
 
     return [(u.radian, u.km, to_distance, to_angle)]

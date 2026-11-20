@@ -285,3 +285,20 @@ def test_off_disc_coordinates_become_nan():
     result = coords.transform_to(HeliographicStonyhurst(obstime=OBSTIME))
     assert np.isfinite(result.lon.to_value(u.deg)[0])
     assert np.isnan(result.radius.to_value(u.AU)[1])
+
+
+def test_helioprojective_to_heliocentric_keeps_the_component_units():
+    # The old code gave x and y the unit of the point's distance, and z the unit
+    # of the observer's distance from the Sun.
+    point = SkyCoord(
+        Helioprojective(
+            100 * u.arcsec, 50 * u.arcsec, 1.0e8 * u.km, observer="earth", obstime=OBSTIME
+        )
+    )
+    cartesian = point.transform_to(Heliocentric(observer="earth", obstime=OBSTIME)).cartesian
+    radius_unit = get_earth(OBSTIME).radius.unit
+
+    assert radius_unit != u.km
+    assert cartesian.x.unit == u.km
+    assert cartesian.y.unit == u.km
+    assert cartesian.z.unit == radius_unit

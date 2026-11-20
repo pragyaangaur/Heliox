@@ -4,7 +4,9 @@ Rotation matrices relating the solar frames to the ICRS axes.
 Everything is built from two ingredients: the direction of the Sun's rotation
 axis, and the direction of the Earth. The IAU working group on cartographic
 coordinates fixes the first, and astropy's built-in ephemeris supplies the
-second.
+second. The rotational elements and the matrix arithmetic live in the Rust
+core. This module looks up the times and the Earth's position, and wraps the
+results.
 """
 
 import numpy as np
@@ -14,43 +16,28 @@ import astropy.units as u
 from astropy.coordinates import get_body_barycentric
 from astropy.time import Time
 
+from heliox._core import coordinates as _rust
 from heliox.time import parse_time
 
 __all__ = []
 
-# IAU 2015 rotational elements for the Sun. The pole is given in the ICRF, and
-# the prime meridian angle W is measured from the ascending node of the solar
-# equator on the ICRF equator.
-_POLE_RA = 286.13 * u.deg
-_POLE_DEC = 63.87 * u.deg
-_PRIME_MERIDIAN_AT_J2000 = 84.176 * u.deg
-_ROTATION_RATE = 14.1844000 * u.deg / u.day
-
 _J2000_TDB = Time("J2000.0", scale="tdb")
 
-
-def _unit_vector(ra, dec):
-    """A unit Cartesian vector in the ICRS axes from a right ascension and declination."""
-    return np.array(
-        [
-            (np.cos(dec) * np.cos(ra)).value,
-            (np.cos(dec) * np.sin(ra)).value,
-            np.sin(dec).value,
-        ]
-    )
-
-
 #: The Sun's rotation axis as a unit vector in the ICRS axes.
-SOLAR_POLE = _unit_vector(_POLE_RA, _POLE_DEC)
+SOLAR_POLE = _rust.solar_pole()
 
 #: The ascending node of the solar equator on the ICRF equator, as a unit vector.
-SOLAR_EQUATOR_NODE = _unit_vector(_POLE_RA + 90 * u.deg, 0 * u.deg)
+SOLAR_EQUATOR_NODE = _rust.solar_equator_node()
 
 
-def _normalise(vectors):
-    """Scale vectors along the last axis to unit length."""
-    norm = np.linalg.norm(vectors, axis=-1, keepdims=True)
-    return vectors / norm
+def _flat(values):
+    """A float array flattened to one contiguous dimension, as the Rust core expects."""
+    return np.ravel(np.asarray(values, dtype=float))
+
+
+def _stack(flat, shape):
+    """Reshape the flat output of a matrix kernel to a stack of 3 by 3 matrices."""
+    return flat.reshape(shape + (3, 3))
 
 
 def _sun_to_earth(t):
@@ -64,20 +51,14 @@ def _sun_to_earth(t):
     return np.moveaxis(offset.xyz.to_value(u.AU), 0, -1)
 
 
-def _frame_from_pole_and_x(x_axis, pole):
+def matrix_product(a, b):
     """
-    Build a rotation matrix from a pole and a provisional x axis.
+    The product ``a @ b`` of two stacks of 3 by 3 matrices.
 
-    The x axis is projected into the plane perpendicular to the pole and
-    normalised, then y completes a right-handed set. Rows of the returned
-    matrix are the basis vectors, so multiplying a vector expressed in the ICRS
-    axes by this matrix gives its components in the new frame.
+    The stacks broadcast against each other, as they do for ``@``.
     """
-    pole = np.broadcast_to(pole, x_axis.shape)
-    along_pole = np.sum(x_axis * pole, axis=-1, keepdims=True) * pole
-    x_hat = _normalise(x_axis - along_pole)
-    y_hat = np.cross(pole, x_hat)
-    return np.stack([x_hat, y_hat, pole], axis=-2)
+    a, b = np.broadcast_arrays(np.asarray(a, dtype=float), np.asarray(b, dtype=float))
+    return _stack(_rust.compose_matrices(_flat(a), _flat(b)), a.shape[:-2])
 
 
 def stonyhurst_matrix(t):
@@ -87,7 +68,10 @@ def stonyhurst_matrix(t):
     Zero longitude is the meridian facing the Earth, so the matrix depends on
     where the Earth is at ``t``.
     """
-    return _frame_from_pole_and_x(_sun_to_earth(t), SOLAR_POLE)
+    offset = _sun_to_earth(t)
+    poles = np.broadcast_to(SOLAR_POLE, offset.shape)
+    matrices = _rust.frame_matrices(_flat(offset), _flat(poles))
+    return _stack(matrices, offset.shape[:-1])
 
 
 def prime_meridian_angle(t, light_travel_distance=None):
@@ -110,8 +94,9 @@ def prime_meridian_angle(t, light_travel_distance=None):
     time = parse_time(t).tdb
     if light_travel_distance is not None:
         time = time - (light_travel_distance / const.c).to(u.s)
-    elapsed = (time - _J2000_TDB).to(u.day)
-    return (_PRIME_MERIDIAN_AT_J2000 + _ROTATION_RATE * elapsed) % (360 * u.deg)
+    elapsed = (time - _J2000_TDB).to_value(u.day)
+    degrees = _rust.prime_meridian_degrees(_flat(elapsed))
+    return degrees.reshape(np.shape(elapsed)) * u.deg
 
 
 def carrington_matrix(t, light_travel_distance=None):
@@ -130,12 +115,7 @@ def carrington_matrix(t, light_travel_distance=None):
         Passed to `prime_meridian_angle`.
     """
     angle = prime_meridian_angle(t, light_travel_distance)
-    node = np.broadcast_to(SOLAR_EQUATOR_NODE, angle.shape + (3,))
-    ahead = np.cross(np.broadcast_to(SOLAR_POLE, node.shape), node)
-    cos = np.cos(angle).value[..., np.newaxis]
-    sin = np.sin(angle).value[..., np.newaxis]
-    x_axis = node * cos + ahead * sin
-    return _frame_from_pole_and_x(x_axis, SOLAR_POLE)
+    return _stack(_rust.carrington_matrices(_flat(angle.to_value(u.deg))), angle.shape)
 
 
 def inertial_matrix(t):
@@ -147,5 +127,5 @@ def inertial_matrix(t):
     is accepted, and broadcast against, only for consistency with the others.
     """
     shape = np.shape(parse_time(t).jd)
-    node = np.broadcast_to(SOLAR_EQUATOR_NODE, shape + (3,))
-    return _frame_from_pole_and_x(node, SOLAR_POLE)
+    matrix = _rust.inertial_matrix().reshape(3, 3)
+    return np.broadcast_to(matrix, shape + (3, 3)).copy()
