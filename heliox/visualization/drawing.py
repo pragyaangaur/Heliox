@@ -10,8 +10,9 @@ view the axes has.
 import numpy as np
 
 import astropy.units as u
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import Longitude, SkyCoord
 
+from heliox._core.visualization import grid_paths, quadrangle_sides
 from heliox.coordinates import (
     HeliographicCarrington,
     HeliographicStonyhurst,
@@ -128,22 +129,25 @@ def grid(
     kwargs.setdefault("alpha", 0.6)
 
     step = spacing.to_value(u.deg)
+    meridians, meridian_latitudes, parallels, parallel_longitudes = grid_paths(step, resolution)
     lines = []
 
     # Meridians: constant longitude, latitude running pole to pole.
-    latitudes = np.linspace(-90, 90, resolution) * u.deg
-    for longitude in np.arange(-180, 180, step):
-        points = SkyCoord(np.full(resolution, longitude) * u.deg, latitudes, frame=frame)
+    for longitude in meridians:
+        points = SkyCoord(
+            np.full(resolution, longitude) * u.deg, meridian_latitudes * u.deg, frame=frame
+        )
         lines.extend(axes.plot_coord(points, **kwargs))
 
     # Parallels: constant latitude, longitude going all the way round.
-    longitudes = np.linspace(-180, 180, resolution) * u.deg
-    for latitude in np.arange(-90 + step, 90, step):
-        points = SkyCoord(longitudes, np.full(resolution, latitude) * u.deg, frame=frame)
+    for latitude in parallels:
+        points = SkyCoord(
+            parallel_longitudes * u.deg, np.full(resolution, latitude) * u.deg, frame=frame
+        )
         lines.extend(axes.plot_coord(points, **kwargs))
 
     if annotate:
-        for longitude in np.arange(-180, 180, step):
+        for longitude in meridians:
             label_point = SkyCoord(longitude * u.deg, 0 * u.deg, frame=frame)
             try:
                 axes.plot_coord(label_point, marker="", linestyle="none")
@@ -191,22 +195,29 @@ def quadrangle(
     lon0, lat0 = bottom_left.spherical.lon, bottom_left.spherical.lat
     lon1, lat1 = top_right.spherical.lon, top_right.spherical.lat
 
-    along_lon = np.linspace(lon0, lon1, resolution)
-    along_lat = np.linspace(lat0, lat1, resolution)
-    constant = np.ones(resolution)
-
-    sides = [
-        SkyCoord(along_lon, lat0 * constant, frame=frame),
-        SkyCoord(lon1 * constant, along_lat, frame=frame),
-        SkyCoord(along_lon[::-1], lat1 * constant, frame=frame),
-        SkyCoord(lon0 * constant, along_lat[::-1], frame=frame),
-    ]
+    # Each side keeps the unit that the corner it is built from had. The sides
+    # between the corners are sampled in the bottom left corner's units.
+    side_lons, side_lats = quadrangle_sides(
+        (lon0.value, lat0.value),
+        (lon1.value, lat1.value),
+        (lon1.to_value(lon0.unit), lat1.to_value(lat0.unit)),
+        resolution,
+    )
+    lon_units = [lon0.unit, lon1.unit, lon0.unit, lon0.unit]
+    lat_units = [lat0.unit, lat0.unit, lat1.unit, lat0.unit]
+    wrap_angles = [lon0.wrap_angle, lon1.wrap_angle, lon0.wrap_angle, lon0.wrap_angle]
 
     kwargs.setdefault("color", "white")
     kwargs.setdefault("linewidth", 1.0)
 
     lines = []
-    for side in sides:
+    for lons, lats, lon_unit, lat_unit, wrap_angle in zip(
+        side_lons, side_lats, lon_units, lat_units, wrap_angles, strict=True
+    ):
+        # Keep the longitudes wrapped as the corner's were, so that the values
+        # are stored exactly as before.
+        lons = Longitude(lons * lon_unit, wrap_angle=wrap_angle)
+        side = SkyCoord(lons, lats * lat_unit, frame=frame)
         lines.extend(axes.plot_coord(side, **kwargs))
     return lines
 

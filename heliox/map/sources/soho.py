@@ -1,11 +1,11 @@
 """Map sources for the instruments on the SOHO spacecraft."""
 
-import numpy as np
-
 import astropy.units as u
 from astropy.visualization import ImageNormalize, LogStretch
 
+from heliox._core import maps as _core_maps
 from heliox.map.mapbase import GenericMap
+from heliox.map.sources._samples import samples
 from heliox.visualization.color_tables import get_cmap
 
 __all__ = ["LASCOMap", "EITMap"]
@@ -37,26 +37,22 @@ class LASCOMap(GenericMap):
         return "white-light"
 
     def _default_plot_settings(self):
-        detector = self.detector.upper()
-        cmap = "soholasco3" if detector == "C3" else "soholasco2"
-        finite = self.data[np.isfinite(self.data) & (self.data > 0)]
-        if finite.size == 0:
-            return {"cmap": get_cmap(cmap)}
+        cmap = get_cmap(_core_maps.lasco_colour_table(self.detector))
+        limits = _core_maps.lasco_display_limits(*samples(self.data))
+        if limits is None:
+            return {"cmap": cmap}
         # The corona falls off by orders of magnitude across the field, so a
         # logarithmic stretch is the only way to see all of it at once.
+        vmin, vmax = limits
         return {
-            "cmap": get_cmap(cmap),
-            "norm": ImageNormalize(
-                vmin=float(np.nanpercentile(finite, 5)),
-                vmax=float(np.nanpercentile(finite, 99.5)),
-                stretch=LogStretch(),
-            ),
+            "cmap": cmap,
+            "norm": ImageNormalize(vmin=vmin, vmax=vmax, stretch=LogStretch()),
         }
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
         """Recognise a LASCO image from its ``INSTRUME`` keyword."""
-        return str(header.get("instrume", "")).upper().startswith("LASCO")
+        return _core_maps.instrument_matches(str(header.get("instrume", "")), "LASCO")
 
 
 class EITMap(GenericMap):
@@ -86,10 +82,7 @@ class EITMap(GenericMap):
         try:
             # EIT's passbands are close enough to AIA's that the same colour
             # tables read correctly.
-            nearest = min(
-                (94, 171, 193, 304),
-                key=lambda channel: abs(channel - float(self.meta.get("wavelnth", 195))),
-            )
+            nearest = _core_maps.nearest_eit_channel(float(self.meta.get("wavelnth", 195)))
             cmap = aia_color_table(nearest * u.angstrom)
         except ValueError:  # pragma: no cover - the nearest is always valid
             cmap = "gray"
@@ -98,4 +91,4 @@ class EITMap(GenericMap):
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
         """Recognise an EIT image from its ``INSTRUME`` keyword."""
-        return str(header.get("instrume", "")).upper().startswith("EIT")
+        return _core_maps.instrument_matches(str(header.get("instrume", "")), "EIT")

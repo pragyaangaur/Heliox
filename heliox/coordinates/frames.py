@@ -38,6 +38,7 @@ from astropy.coordinates import (
 from astropy.coordinates.baseframe import BaseCoordinateFrame, RepresentationMapping
 from astropy.coordinates.representation import CartesianRepresentation
 
+from heliox._core import coordinates as _rust
 from heliox.coordinates._attributes import (
     ObserverCoordinateAttribute,
     _observer_repr,
@@ -334,25 +335,24 @@ class Helioprojective(SunPyBaseCoordinateFrame):
             )
         observer = observer.make_3d() if observer.is_2d else observer
 
-        # Solve the quadratic for the intersection of the line of sight with a
-        # sphere of radius rsun centred on the Sun.
-        distance_to_sun = observer.radius
+        # Intersect each line of sight with a sphere of radius rsun centred on the Sun.
         rep = self.represent_as(UnitSphericalRepresentation)
-        cos_alpha = np.cos(rep.lat) * np.cos(rep.lon)
+        unit = observer.radius.unit
+        lon, lat, distance_to_sun, rsun = np.broadcast_arrays(
+            rep.lon.to_value(u.rad),
+            rep.lat.to_value(u.rad),
+            observer.radius.to_value(unit),
+            self.rsun.to_value(unit),
+        )
+        distance, misses = _rust.surface_distances(
+            lon.ravel(), lat.ravel(), distance_to_sun.ravel(), rsun.ravel()
+        )
+        distance = u.Quantity(distance.reshape(lon.shape)[()], unit)
 
-        b = -2 * distance_to_sun * cos_alpha
-        c = distance_to_sun**2 - self.rsun**2
-        discriminant = b**2 - 4 * c
-
-        with np.errstate(invalid="ignore"):
-            root = np.sqrt(discriminant)
-        distance = (-b - root) / 2
-
-        misses = discriminant < 0
         if np.any(misses):
             if on_disc_only:
                 raise ConvertError("Some coordinates do not intersect the solar surface.")
-            distance = u.Quantity(np.where(misses, np.nan, distance.to_value(u.km)), u.km)
+            distance = u.Quantity(distance.to_value(u.km), u.km)
 
         return self.realize_frame(
             SphericalRepresentation(lon=rep.lon, lat=rep.lat, distance=distance)
@@ -388,15 +388,16 @@ class Helioprojective(SunPyBaseCoordinateFrame):
         heliocentric = coord.transform_to(Heliocentric(observer=observer, obstime=self.obstime))
         radius = heliocentric.cartesian.norm()
 
-        on_or_above_surface = radius >= self.rsun - tolerance
-        in_front_of_the_sun = heliocentric.z > 0 * u.km
-        outside_the_shadow = np.hypot(heliocentric.x, heliocentric.y) >= self.rsun - tolerance
-
-        with np.errstate(invalid="ignore"):
-            return np.logical_and(
-                on_or_above_surface,
-                np.logical_or(in_front_of_the_sun, outside_the_shadow),
-            )
+        unit = heliocentric.x.unit
+        threshold = (self.rsun - tolerance).to_value(unit)
+        x, y, z, radius = np.broadcast_arrays(
+            heliocentric.x.to_value(unit),
+            heliocentric.y.to_value(unit),
+            heliocentric.z.to_value(unit),
+            radius.to_value(unit),
+        )
+        visible = _rust.visibility(x.ravel(), y.ravel(), z.ravel(), radius.ravel(), threshold)
+        return visible.reshape(x.shape)[()]
 
 
 class HeliocentricInertial(SunPyBaseCoordinateFrame):

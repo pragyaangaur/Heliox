@@ -16,7 +16,6 @@ Users should call the public wrappers in `heliox.sun.sun` rather than these.
 import numpy as np
 
 import astropy.units as u
-import erfa
 from astropy.coordinates import (
     GCRS,
     GeocentricMeanEcliptic,
@@ -117,14 +116,19 @@ def _nutation(t):
         Nutation in longitude and in obliquity.
     """
     time = parse_time(t).tt
-    dpsi, deps = erfa.nut06a(time.jd1, time.jd2)
-    return (dpsi * u.rad).to(u.arcsec), (deps * u.rad).to(u.arcsec)
+    shape, (jd1, jd2) = _flat(time.jd1, time.jd2)
+    dpsi, deps = _rust.nut06a(jd1, jd2)
+    return (
+        (_unshape(dpsi, shape) * u.rad).to(u.arcsec),
+        (_unshape(deps, shape) * u.rad).to(u.arcsec),
+    )
 
 
 def mean_obliquity_of_ecliptic(t):
     """The mean obliquity of the ecliptic, using the IAU 2006 precession model."""
     time = parse_time(t).tt
-    return (erfa.obl06(time.jd1, time.jd2) * u.rad).to(u.arcsec)
+    shape, (jd1, jd2) = _flat(time.jd1, time.jd2)
+    return (_unshape(_rust.obl06(jd1, jd2), shape) * u.rad).to(u.arcsec)
 
 
 def true_obliquity_of_ecliptic(t):
