@@ -7,8 +7,10 @@ precision, the reason is the original: its law of cosines for the distance to th
 cancels two numbers of about 1e23 m^2 to get one of about 1e18 m^2, which leaves a rounding error
 of a few millimetres in the distance (see `test_kernel_matches_exact_arithmetic`, which compares
 both implementations with 50 digit arithmetic). That error is about 1e-9 pixel at the disc centre
-and grows to about 1e-7 pixel within a pixel of the limb. The tests assert identical NaN masks
-everywhere.
+and grows to about 1e-7 pixel within a pixel of the limb. The tests assert identical NaN masks on
+the pixel grids they use. That is not a guarantee for every point: within about 1e-8 pixel of the
+limb the finite and NaN boundaries of sunpy and the kernel differ by up to about 5e-9 pixel, again
+because of the cancellation in sunpy.
 
 The sunpy sample AIA 171 image is the real data. Point ``SUNPY_SAMPLEDIR`` at a directory that
 holds it (sunpy downloads it there when it is missing, which needs network access). Without it the
@@ -128,7 +130,8 @@ IMAGE_SCENARIOS = {
 
 
 def compare_coordinates(expected, actual):
-    """NaN masks identical, and the coordinate differences within the documented bounds."""
+    """NaN masks identical on this grid (not guaranteed for points within about 1e-8 pixel of the
+    limb), and the coordinate differences within the documented bounds."""
     assert expected.shape == actual.shape and actual.dtype == np.float64
     np.testing.assert_array_equal(np.isnan(actual), np.isnan(expected))
     ok = ~np.isnan(expected[:, 0])
@@ -233,82 +236,101 @@ def test_kernel_rejects_malformed_parameters(aia):
         _core.warp_sun_coordinates_f64(xy, [0.0] * 10, chain)
 
 
-def test_kernel_matches_exact_arithmetic(aia):
-    """Both implementations against 50 digit arithmetic on the same chain.
+def test_kernel_matches_independent_exact_arithmetic(aia):
+    """Both implementations against 50 digit arithmetic written independently of the kernel.
 
-    The exact chain uses the parameters the Rust kernel receives, so this checks the per pixel
-    arithmetic and not the matrices (the comparisons with sunpy do that). It shows that the Rust
-    kernel is within about 3e-11 pixel of the exact result and that most of the difference to
-    sunpy is sunpy's own rounding.
+    The reference uses angles and inverse trigonometric functions throughout: the TAN projection
+    through the native longitude and latitude (``atan2`` and ``asin``), the law of cosines in its
+    original form, heliographic longitude and latitude from ``atan2`` and ``asin``, and the
+    rotation by subtracting the angle from the longitude. Only the numbers that Python hands the
+    kernel are shared (WCS parameters, observer distances, rate coefficients and the two matrices).
+    The comparison with sunpy checks those. Disc pixels and a band of pixels just inside the limb
+    are used, for two rotations.
     """
     mp = pytest.importorskip("mpmath")
     mp.mp.dps = 50
-    obs = new_observer(aia, dict(time=-2 * u.day))
     rng = np.random.default_rng(3)
-    xy = np.vstack([rng.uniform(0, 1023, (300, 2)), [[512.0 + 399.0 * np.cos(t), 512.0 + 399.0 * np.sin(t)] for t in np.linspace(0, 6, 40)]])
-    expected = dr._warp_sun_coordinates(xy, aia, obs)
-    actual = rs.warp_sun_coordinates(xy, aia, obs)
-    wcs, chain = rs._parameters(aia, obs, {})
+    for kwargs in (dict(time=-2 * u.day), dict(time=6 * u.hr)):
+        obs = new_observer(aia, kwargs)
+        wcs, chain = rs._parameters(aia, obs, {})
+        limb_px = np.degrees(np.arcsin(chain[1] / chain[0])) / np.hypot(wcs[0], wcs[2])
+        centre = np.array(wcs[4:6])
+        angle = rng.uniform(0, 2 * np.pi, 100)
+        radius = limb_px * rng.uniform(0.97, 0.999, 100)
+        band = centre + np.c_[radius * np.cos(angle), radius * np.sin(angle)]
+        xy = np.vstack([rng.uniform(100, 900, (120, 2)), band])
+        expected = dr._warp_sun_coordinates(xy, aia, obs)
+        actual = rs.warp_sun_coordinates(xy, aia, obs)
 
-    cd = [mp.mpf(v) for v in wcs[:4]]
-    crpix = [mp.mpf(v) for v in wcs[4:6]]
-    a0, d0, slp, clp = (mp.mpf(v) for v in (wcs[6], wcs[7], wcs[8], wcs[9]))
-    r_new, rsun, c0, c1, c2, r_map = (mp.mpf(v) for v in chain[:6])
-    mat_a = mp.matrix(3, 3)
-    mat_b = mp.matrix(3, 3)
-    for i in range(3):
-        for j in range(3):
-            mat_a[i, j] = mp.mpf(chain[6 + 3 * i + j])
-            mat_b[i, j] = mp.mpf(chain[15 + 3 * i + j])
-    det = cd[0] * cd[3] - cd[1] * cd[2]
-    inv = [cd[3] / det, -cd[1] / det, -cd[2] / det, cd[0] / det]
-    sa0, ca0, sd0, cd0 = mp.sin(a0), mp.cos(a0), mp.sin(d0), mp.cos(d0)
+        cd = [mp.mpf(v) for v in wcs[:4]]
+        crpix = [mp.mpf(v) for v in wcs[4:6]]
+        a0, d0 = mp.mpf(wcs[6]), mp.mpf(wcs[7])
+        phip = mp.atan2(mp.mpf(wcs[8]), mp.mpf(wcs[9]))
+        r_new, rsun, c0, c1, c2, r_map = (mp.mpf(v) for v in chain[:6])
+        mat_a = mp.matrix(3, 3)
+        mat_b = mp.matrix(3, 3)
+        for i in range(3):
+            for j in range(3):
+                mat_a[i, j] = mp.mpf(chain[6 + 3 * i + j])
+                mat_b[i, j] = mp.mpf(chain[15 + 3 * i + j])
+        det = cd[0] * cd[3] - cd[1] * cd[2]
+        inv = [cd[3] / det, -cd[1] / det, -cd[2] / det, cd[0] / det]
+        deg = mp.pi / 180
 
-    def exact(px, py):
-        dx, dy = mp.mpf(px) - crpix[0], mp.mpf(py) - crpix[1]
-        x, y = cd[0] * dx + cd[1] * dy, cd[2] * dx + cd[3] * dy
-        r = mp.hypot(x, y)
-        rho = r * mp.pi / 180
-        st = 1 / mp.sqrt(1 + rho**2)
-        ct = rho * st
-        sp, cp = x / r, -y / r
-        sdp, cdp = sp * clp - cp * slp, cp * clp + sp * slp
-        a, b = -ct * sdp, st * cd0 - ct * sd0 * cdp
-        uvec = [ca0 * b - sa0 * a, sa0 * b + ca0 * a, st * sd0 + ct * cd0 * cdp]
-        disc = rsun**2 - r_new**2 * (uvec[1] ** 2 + uvec[2] ** 2)
-        if disc < 0:
-            return None
-        dist = r_new * uvec[0] - mp.sqrt(disc)
-        h = mat_a * mp.matrix([dist * uvec[1], dist * uvec[2], r_new - dist * uvec[0]])
-        sn = h[2] / mp.sqrt(h[0] ** 2 + h[1] ** 2 + h[2] ** 2)
-        rot = c0 + c1 * sn**2 + c2 * sn**4
-        sr, cr = mp.sin(rot), mp.cos(rot)
-        mm = mat_b * mp.matrix([h[0] * cr + h[1] * sr, h[1] * cr - h[0] * sr, h[2]])
-        if mm[2] < 0:
-            return None
-        v = [r_map - mm[2], mm[0], mm[1]]
-        n = mp.sqrt(sum(t**2 for t in v))
-        v = [t / n for t in v]
-        aa, bb = v[1] * ca0 - v[0] * sa0, v[0] * ca0 + v[1] * sa0
-        w = v[2] * sd0 + cd0 * bb
-        su, sv = -aa, v[2] * cd0 - sd0 * bb
-        px_w = (slp * sv + clp * su) / w * 180 / mp.pi
-        py_w = -(clp * sv - slp * su) / w * 180 / mp.pi
-        return crpix[0] + inv[0] * px_w + inv[1] * py_w, crpix[1] + inv[2] * px_w + inv[3] * py_w
+        def exact(px, py):
+            # Pixel to native coordinates, then to longitude and latitude (Calabretta and Greisen).
+            dx, dy = mp.mpf(px) - crpix[0], mp.mpf(py) - crpix[1]
+            x, y = cd[0] * dx + cd[1] * dy, cd[2] * dx + cd[3] * dy
+            phi = mp.atan2(x, -y)
+            theta = mp.atan2(1 / deg, mp.hypot(x, y))
+            lat = mp.asin(mp.sin(theta) * mp.sin(d0) + mp.cos(theta) * mp.cos(d0) * mp.cos(phi - phip))
+            lon = a0 + mp.atan2(
+                -mp.cos(theta) * mp.sin(phi - phip),
+                mp.sin(theta) * mp.cos(d0) - mp.cos(theta) * mp.sin(d0) * mp.cos(phi - phip),
+            )
+            # Law of cosines in its original form, then heliocentric and heliographic.
+            cos_alpha = mp.cos(lat) * mp.cos(lon)
+            b = -2 * r_new * cos_alpha
+            disc = b * b - 4 * (r_new**2 - rsun**2)
+            if disc < 0:
+                return None
+            dist = (-b - mp.sqrt(disc)) / 2
+            hpc = [dist * cos_alpha, dist * mp.cos(lat) * mp.sin(lon), dist * mp.sin(lat)]
+            h = mat_a * mp.matrix([hpc[1], hpc[2], r_new - hpc[0]])
+            hlon = mp.atan2(h[1], h[0])
+            hlat = mp.asin(h[2] / mp.sqrt(h[0] ** 2 + h[1] ** 2 + h[2] ** 2))
+            rot = c0 + c1 * mp.sin(hlat) ** 2 + c2 * mp.sin(hlat) ** 4
+            rl = hlon - rot
+            rc = mp.sqrt(h[0] ** 2 + h[1] ** 2 + h[2] ** 2)
+            m = mat_b * mp.matrix([rc * mp.cos(hlat) * mp.cos(rl), rc * mp.cos(hlat) * mp.sin(rl), rc * mp.sin(hlat)])
+            if m[2] < 0:
+                return None
+            # Back to helioprojective angles as seen by the map observer, then the inverse WCS.
+            v = [r_map - m[2], m[0], m[1]]
+            tx = mp.atan2(v[1], v[0])
+            ty = mp.asin(v[2] / mp.sqrt(sum(t**2 for t in v)))
+            sin_t = mp.sin(ty) * mp.sin(d0) + mp.cos(ty) * mp.cos(d0) * mp.cos(tx - a0)
+            theta2 = mp.asin(sin_t)
+            phi2 = phip + mp.atan2(
+                -mp.cos(ty) * mp.sin(tx - a0),
+                mp.sin(ty) * mp.cos(d0) - mp.cos(ty) * mp.sin(d0) * mp.cos(tx - a0),
+            )
+            radius_native = mp.cot(theta2) / deg
+            px_w, py_w = radius_native * mp.sin(phi2), -radius_native * mp.cos(phi2)
+            return crpix[0] + inv[0] * px_w + inv[1] * py_w, crpix[1] + inv[2] * px_w + inv[3] * py_w
 
-    rust_error = []
-    sunpy_error = []
-    for i in range(len(xy)):
-        truth = exact(*xy[i])
-        if truth is None or np.isnan(expected[i, 0]):
-            assert truth is None and np.isnan(actual[i, 0]) and np.isnan(expected[i, 0])
-            continue
-        rust_error.append(max(abs(float(truth[k] - actual[i, k])) for k in (0, 1)))
-        sunpy_error.append(max(abs(float(truth[k] - expected[i, k])) for k in (0, 1)))
-    assert len(rust_error) > 100
-    assert max(rust_error) < 2e-10, max(rust_error)
-    # sunpy's own error is larger than the Rust error (by about 100 times at the median here).
-    assert np.median(sunpy_error) > 5 * np.median(rust_error)
+        rust_error = []
+        sunpy_error = []
+        for i in range(len(xy)):
+            truth = exact(*xy[i])
+            if truth is None or np.isnan(expected[i, 0]) or np.isnan(actual[i, 0]):
+                continue
+            rust_error.append(max(abs(float(truth[k] - actual[i, k])) for k in (0, 1)))
+            sunpy_error.append(max(abs(float(truth[k] - expected[i, k])) for k in (0, 1)))
+        assert len(rust_error) > 100, len(rust_error)
+        assert max(rust_error) < 1e-10, max(rust_error)
+        # sunpy's own error is larger than the Rust error.
+        assert np.median(sunpy_error) > 5 * np.median(rust_error)
 
 
 def test_rate_coefficients_reproduce_sunpy_for_every_model():
@@ -663,3 +685,78 @@ def test_threads_running_real_rotations_agree(aia):
 def test_rust_function_is_not_mistaken_for_the_original():
     assert rs.warp_sun_coordinates._heliox_rs is True
     assert not hasattr(rs._original(), "_heliox_rs")
+
+
+# ------------------------------------------------------------------ coordinate contexts
+
+
+def _contexts():
+    from sunpy.coordinates import propagate_with_solar_surface, transform_with_sun_center
+    from sunpy.coordinates.screens import PlanarScreen, SphericalScreen
+
+    return {
+        "spherical screen": lambda m: SphericalScreen(m.observer_coordinate),
+        "spherical screen, only off disk": lambda m: SphericalScreen(m.observer_coordinate, only_off_disk=True),
+        "planar screen": lambda m: PlanarScreen(m.observer_coordinate),
+        "propagate with solar surface": lambda m: propagate_with_solar_surface(),
+        "transform with sun center": lambda m: transform_with_sun_center(),
+    }
+
+
+@pytest.mark.parametrize("name", list(_contexts()))
+def test_sunpy_coordinate_contexts_run_the_original(aia, rust_calls, name):
+    """The kernel does not model these contexts, so the result must be sunpy's own, bit for bit."""
+    obs = new_observer(aia, dict(time=1 * u.day))
+    xy = grid(1024)[::3]
+    make = _contexts()[name]
+    with make(aia):
+        expected = dr._warp_sun_coordinates(xy, aia, obs)
+        actual = rs.warp_sun_coordinates(xy, aia, obs)
+    np.testing.assert_array_equal(actual, expected)
+    assert rust_calls == []
+    # Outside the context the kernel is used again.
+    rs.warp_sun_coordinates(xy, aia, obs)
+    assert len(rust_calls) == 1
+
+
+@pytest.mark.parametrize("name", ["spherical screen", "propagate with solar surface"])
+def test_whole_rotation_under_a_context_matches_sunpy(aia, rust_calls, name):
+    smap = crop(aia, [256, 256], [767, 767])
+    make = _contexts()[name]
+    with make(smap):
+        expected = dr.differential_rotate(smap, time=6 * u.hr)
+        actual = rs.differential_rotate(smap, time=6 * u.hr)
+    assert rust_calls == []
+    assert_same_map(expected, actual)
+
+
+# ------------------------------------------------------------------ swap details
+
+
+def test_a_users_patch_survives_the_swap(aia, rust_calls, monkeypatch):
+    """The last exit restores what was there on the first entry, and the fallbacks call it."""
+    seen = []
+    real = dr._warp_sun_coordinates
+
+    def user_patch(*args, **kwargs):
+        seen.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(dr, "_warp_sun_coordinates", user_patch)
+    rs.differential_rotate(aia, time=1 * u.hr)  # supported: Rust runs, the patch is not called
+    assert dr._warp_sun_coordinates is user_patch and rs._DEPTH == 0
+    assert len(rust_calls) == 1 and seen == []
+    meta = {**aia.meta, "ctype1": "HPLN-ARC", "ctype2": "HPLT-ARC"}
+    rs.differential_rotate(sunpy_map.Map(aia.data, meta), time=1 * u.hr)  # fallback calls the patch
+    assert seen == [1]
+    assert dr._warp_sun_coordinates is user_patch
+
+
+def test_a_rust_value_error_falls_back_to_sunpy(aia, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise ValueError("refused")
+
+    monkeypatch.setattr(_core, "warp_sun_coordinates_f64", refuse)
+    obs = new_observer(aia, dict(time=1 * u.hr))
+    xy = grid(1024)[::11]
+    np.testing.assert_array_equal(rs.warp_sun_coordinates(xy, aia, obs), dr._warp_sun_coordinates(xy, aia, obs))
