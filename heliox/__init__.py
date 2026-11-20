@@ -40,6 +40,8 @@ The sample data is generated locally the first time it is used, so none of the
 examples in the documentation need network access.
 """
 
+# The compiled core. Importing it here makes a broken build fail at import time.
+from heliox import _core  # noqa: F401
 from heliox.version import __version__, version_info
 
 __all__ = ["__version__", "version_info"]

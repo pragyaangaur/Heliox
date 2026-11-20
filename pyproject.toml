@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
 
 [project]
 name = "heliox"
@@ -37,8 +37,16 @@ Homepage = "https://github.com/pragyaangaur/heliox"
 Source = "https://github.com/pragyaangaur/heliox"
 Issues = "https://github.com/pragyaangaur/heliox/issues"
 
-[tool.setuptools.packages.find]
-include = ["heliox*"]
+[tool.maturin]
+# The Rust core is built from core/ and installed as heliox._core.
+manifest-path = "core/Cargo.toml"
+module-name = "heliox._core"
+features = ["extension-module"]
+# Only the heliox package goes into the wheel, as setuptools did before.
+python-source = "."
+python-packages = ["heliox"]
+# Cached sample data and bytecode are generated locally and are not shipped.
+exclude = ["heliox/data/sample_data/**", "**/__pycache__/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["heliox"]
