@@ -4,6 +4,7 @@ import numpy as np
 
 import astropy.units as u
 
+from heliox._core import timeseries as _core_timeseries
 from heliox.timeseries.timeseriesbase import GenericTimeSeries
 
 __all__ = ["XRSTimeSeries", "flare_class", "flux_from_flare_class"]
@@ -53,22 +54,7 @@ def flare_class(flux):
         else np.asarray(flux, dtype=float)
     )
 
-    labels = []
-    for value in values:
-        if not np.isfinite(value) or value <= 0:
-            labels.append("A0.0")
-            continue
-        # Everything above the X threshold stays in the X class, so an X15 is
-        # reported as X15 rather than rolling over to a further letter.
-        letter = "A"
-        for name, threshold in FLARE_CLASSES.items():
-            if value >= threshold:
-                letter = name
-        magnitude = value / FLARE_CLASSES[letter]
-        if letter == "A" and value < FLARE_CLASSES["A"]:
-            labels.append("A0.0")
-        else:
-            labels.append(f"{letter}{magnitude:.1f}")
+    labels = _core_timeseries.flare_labels(np.asarray(values, dtype=float))
 
     return labels[0] if np.ndim(flux) == 0 else labels
 
