@@ -35,6 +35,12 @@ on your machine the first time you use it, so there is nothing to download.
 
 .. toctree::
    :maxdepth: 1
+   :caption: Design
+
+   guide/rust_core
+
+.. toctree::
+   :maxdepth: 1
    :caption: Reference
 
    reference/index
