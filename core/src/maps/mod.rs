@@ -2,8 +2,10 @@
 //!
 //! `grid` holds the pixel index grids and the tests for whether a pixel is inside a map.
 //! `disk` holds the tests of helioprojective points against the solar disc.
+//! `format` holds the number formats of the map summary.
 
 mod disk;
+mod format;
 mod grid;
 
 use pyo3::exceptions::PyValueError;
@@ -37,5 +39,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(grid::nearest_pixel_indices, &module)?)?;
     module.add_function(wrap_pyfunction!(disk::on_disk_mask, &module)?)?;
     module.add_function(wrap_pyfunction!(disk::disk_extent, &module)?)?;
+    format::register(&module)?;
     Ok(())
 }
