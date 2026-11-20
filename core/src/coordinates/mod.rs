@@ -5,6 +5,7 @@
 //! occupy `3 * n` values. The Python code in `heliox.coordinates` does the
 //! reshaping and wraps the results in astropy objects.
 
+mod frames;
 mod geometry;
 mod linalg;
 mod matrices;
@@ -316,5 +317,8 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(angles_to_distances, &module)?)?;
     module.add_function(wrap_pyfunction!(distances_to_angles, &module)?)?;
     module.add_function(wrap_pyfunction!(vector_norms, &module)?)?;
+    module.add_function(wrap_pyfunction!(frames::surface_distances, &module)?)?;
+    module.add_function(wrap_pyfunction!(frames::visibility, &module)?)?;
+    module.add_function(wrap_pyfunction!(frames::observer_summary, &module)?)?;
     Ok(())
 }

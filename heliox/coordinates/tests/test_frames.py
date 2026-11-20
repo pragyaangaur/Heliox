@@ -147,3 +147,12 @@ def test_frame_repr_shortens_a_resolved_observer():
     frame = Helioprojective(obstime=OBSTIME, observer=get_earth(OBSTIME))
     assert "HeliographicStonyhurst (" in repr(frame)
     assert "\n" not in repr(frame).split("observer=")[1].split(">")[0]
+
+
+def test_make_3d_keeps_the_observer_distance_unit():
+    observer = HeliographicStonyhurst(0 * u.deg, 0 * u.deg, 1 * u.AU, obstime=OBSTIME)
+    coord = Helioprojective(0 * u.arcsec, 0 * u.arcsec, obstime=OBSTIME, observer=observer)
+    result = coord.make_3d()
+    assert result.distance.unit == u.AU
+    expected = 1 * u.AU - constants.radius
+    assert result.distance.to_value(u.km) == pytest.approx(expected.to_value(u.km), rel=1e-9)

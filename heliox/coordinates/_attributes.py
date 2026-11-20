@@ -4,6 +4,8 @@ import astropy.units as u
 from astropy.coordinates import Attribute, SkyCoord
 from astropy.coordinates.baseframe import BaseCoordinateFrame
 
+from heliox._core import coordinates as _rust
+
 __all__ = ["ObserverCoordinateAttribute"]
 
 
@@ -88,4 +90,4 @@ def _observer_repr(observer):
     lon = observer.spherical.lon.to_value(u.deg)
     lat = observer.spherical.lat.to_value(u.deg)
     radius = observer.spherical.distance.to_value(u.AU)
-    return f"<HeliographicStonyhurst ({lon:.4f}, {lat:.4f}, {radius:.4e})>"
+    return _rust.observer_summary(lon, lat, radius)
