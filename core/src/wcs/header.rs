@@ -31,16 +31,18 @@ pub fn default_reference_pixel(rows: usize, columns: usize) -> (f64, f64) {
 #[pyfunction]
 pub fn full_sun_scale(rows: usize, columns: usize) -> PyResult<(f64, f64)> {
     if rows == 0 || columns == 0 {
-        return Err(PyZeroDivisionError::new_err("float division by zero"));
+        return Err(PyZeroDivisionError::new_err("division by zero"));
     }
     Ok((360.0 / columns as f64, 180.0 / rows as f64))
 }
 
-/// The angular radius of the Sun in arcseconds, from the solar radius and the
-/// observer distance, which must be in the same length unit.
+/// The angle whose sine is `ratio`, in arcseconds.
+///
+/// For a solar header, the ratio is the solar radius divided by the observer distance,
+/// which gives the angular radius of the Sun.
 #[pyfunction]
-pub fn rsun_obs_arcsec(rsun: f64, dsun: f64) -> f64 {
-    (rsun / dsun).asin() * ARCSEC_PER_RADIAN
+pub fn asin_arcsec(ratio: f64) -> f64 {
+    ratio.asin() * ARCSEC_PER_RADIAN
 }
 
 #[cfg(test)]
@@ -61,7 +63,7 @@ mod tests {
 
     #[test]
     fn solar_radius_at_one_au_is_about_960_arcsec() {
-        let arcsec = rsun_obs_arcsec(6.957e8, 1.495978707e11);
+        let arcsec = asin_arcsec(6.957e8 / 1.495978707e11);
         assert!((arcsec - 959.6).abs() < 0.5);
     }
 }

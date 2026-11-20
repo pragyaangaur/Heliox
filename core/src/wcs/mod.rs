@@ -25,6 +25,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(header::rotation_matrix, &module)?)?;
     module.add_function(wrap_pyfunction!(header::default_reference_pixel, &module)?)?;
     module.add_function(wrap_pyfunction!(header::full_sun_scale, &module)?)?;
-    module.add_function(wrap_pyfunction!(header::rsun_obs_arcsec, &module)?)?;
+    module.add_function(wrap_pyfunction!(header::asin_arcsec, &module)?)?;
     Ok(())
 }
