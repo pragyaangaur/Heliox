@@ -20,6 +20,7 @@ import numpy as np
 import astropy.units as u
 from astropy.io import fits
 
+from heliox._core import synthetic as _core
 from heliox.data._synthetic import make_hdu
 
 __all__ = [
@@ -200,13 +201,11 @@ def _sequence_files():
         # About 13 degrees of rotation a day works out at a fraction of a pixel
         # per ten minutes at this scale, so exaggerate it to something visible.
         data = _shift(base.data.astype(float), (0.0, 1.5 * index), order=1, mode="nearest")
-        data = data + rng.normal(scale=np.sqrt(np.clip(data, 1.0, None)) * 0.3)
+        data = _core.photon_noise(data, rng.standard_normal(data.shape))
 
         header = base.header.copy()
         header["DATE-OBS"] = obstime
-        fits.PrimaryHDU(data=np.clip(data, 0.0, None).astype(np.float32), header=header).writeto(
-            path, overwrite=True
-        )
+        fits.PrimaryHDU(data=data.astype(np.float32), header=header).writeto(path, overwrite=True)
 
     return [str(path) for path in paths]
 
