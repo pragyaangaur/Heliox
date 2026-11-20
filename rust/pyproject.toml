@@ -5,13 +5,14 @@ build-backend = "maturin"
 [project]
 name = "heliox-rs"
 version = "0.1.0"
-description = "Rust kernels for Heliox, starting with the ASDA gamma computation."
+description = "Rust kernels for Heliox: the ASDA gamma computation and the MEM entropy proximal step."
 requires-python = ">=3.10"
 license = { text = "BSD-3-Clause" }
 dependencies = ["numpy", "scipy"]
 
 [project.optional-dependencies]
-test = ["pytest", "sunkit-image", "scikit-image", "astropy"]
+mem = ["astropy", "xrayvision"]
+test = ["pytest", "sunkit-image", "scikit-image", "astropy", "xrayvision", "stixpy"]
 
 [tool.maturin]
 python-source = "python"
