@@ -184,8 +184,17 @@ fn proximal_entropy_f64<'py>(
     Ok(PyArray1::from_vec(py, out))
 }
 
+/// `f64::ln` over an array. The tests use it to compare Rust's logarithm with `np.log` bit for bit.
+#[pyfunction]
+fn ln_f64<'py>(py: Python<'py>, x: PyReadonlyArray1<'py, f64>) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    let xs = x.as_slice().map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let out: Vec<f64> = py.detach(|| xs.par_iter().map(|v| v.ln()).collect());
+    Ok(PyArray1::from_vec(py, out))
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(proximal_entropy_f64, m)?)?;
+    m.add_function(wrap_pyfunction!(ln_f64, m)?)?;
     Ok(())
 }
 
