@@ -56,6 +56,11 @@ def test_flare_class(flux, expected):
     assert flare_class(flux * u.W / u.m**2) == expected
 
 
+def test_flare_class_refuses_a_two_dimensional_array():
+    with pytest.raises(ValueError, match="truth value of an array with more than one element"):
+        flare_class(np.full((2, 2), 1e-6))
+
+
 def test_flare_class_accepts_plain_numbers():
     assert flare_class(5.4e-6) == "C5.4"
 
