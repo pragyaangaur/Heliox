@@ -178,7 +178,7 @@ def main():
         digests = []
         for args in calls:
             per_call.append(statistics.median(timed(lambda args=args: prox(*args), repeats)))
-            digests.append(digest(prox(*args).value.real))
+            digests.append(digest(prox(*args).value))
         result["median_s"] = statistics.median(per_call)
         result["min_s"] = min(per_call)
         result["digest"] = hashlib.sha256("".join(digests).encode()).hexdigest()[:16]
