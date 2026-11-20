@@ -10,6 +10,7 @@ import numpy as np
 
 from astropy.time import Time
 
+from heliox._core import maps as _core_maps
 from heliox.map.mapbase import GenericMap
 
 __all__ = ["MapSequence"]
@@ -58,7 +59,8 @@ class MapSequence:
                 )
 
         if sortby == "date":
-            flattened.sort(key=lambda each: each.date.jd)
+            order = _core_maps.date_order([each.date.jd for each in flattened])
+            flattened = [flattened[index] for index in order]
         elif sortby is not None:
             raise ValueError("sortby must be either 'date' or None.")
 

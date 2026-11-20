@@ -4,7 +4,10 @@
 //! `disk` holds the tests of helioprojective points against the solar disc.
 
 mod disk;
+mod factory;
 mod grid;
+mod sequence;
+mod sources;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -37,5 +40,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(grid::nearest_pixel_indices, &module)?)?;
     module.add_function(wrap_pyfunction!(disk::on_disk_mask, &module)?)?;
     module.add_function(wrap_pyfunction!(disk::disk_extent, &module)?)?;
+    sources::register(&module)?;
     Ok(())
 }
