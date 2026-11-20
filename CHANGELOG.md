@@ -6,9 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-20
+
 ### Changed
 
-- The computational core of Heliox now runs in Rust, in the extension module `heliox._core` built from the `core/` crate with PyO3 and maturin. The Python API is unchanged. Installing Heliox now needs a Rust toolchain.
+- Wheels are now built for Linux, macOS and Windows, so installing Heliox from PyPI no longer needs a Rust toolchain. Building from a source distribution still does.
+- The computational core of Heliox now runs in Rust, in the extension module `heliox._core` built from the `core/` crate with PyO3 and maturin. The Python API is unchanged.
 - Solar ephemeris, nutation and obliquity, the built-in solar system ephemeris, coordinate matrices, time parsing, `TimeRange` arithmetic, image interpolation, map geometry and header logic, query algebra, FITS header handling and the synthetic sample data are computed in Rust.
 
 ### Added
