@@ -134,3 +134,38 @@ def test_julian_centuries_at_j2000():
 def test_day_of_year():
     assert day_of_year("2013-01-01T00:00:00") == pytest.approx(1.0)
     assert day_of_year("2013-01-02T12:00:00") == pytest.approx(2.5)
+
+
+BATCH_VALUES = [
+    "2013-10-28T14:30:00",
+    "20131028_143000",
+    "28-Oct-2013 14:30:00",
+    "2013-301",
+    "2013-10-28T14:30:00+01:00",
+    "2013-10-28T14:30:00.1234567",
+]
+
+
+def test_batch_parsing_matches_scalar_parsing_exactly():
+    scalars = [parse_time(value) for value in BATCH_VALUES]
+    batch = parse_time(BATCH_VALUES)
+    assert np.array_equal(batch.jd1, [t.jd1 for t in scalars])
+    assert np.array_equal(batch.jd2, [t.jd2 for t in scalars])
+    assert batch.scale == "utc"
+
+
+def test_string_array_matches_list_and_keeps_its_shape():
+    values = np.array(BATCH_VALUES[:4]).reshape(2, 2)
+    parsed = parse_time(values)
+    assert parsed.shape == (2, 2)
+    assert np.array_equal(parsed.jd2.ravel(), parse_time(BATCH_VALUES[:4]).jd2)
+    assert parsed[1, 0].isot == "2013-10-28T14:30:00.000"
+    assert parsed[1, 1].isot == "2013-10-28T00:00:00.000"
+
+
+def test_leap_second_is_left_to_astropy():
+    assert parse_time("2016-12-31T23:59:60").isot == "2016-12-31T23:59:60.000"
+
+
+def test_unicode_decimal_digits_are_read_as_their_values():
+    assert parse_time("2013-10-2٨T14:30:00").isot == "2013-10-28T14:30:00.000"
