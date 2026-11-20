@@ -2,11 +2,13 @@
 //!
 //! The generators in `heliox/data/_synthetic.py` and `heliox/data/sample.py`
 //! draw their random numbers with numpy and pass the arrays here. The kernels
-//! do the per-pixel arithmetic of the solar images.
+//! do the per-pixel and per-sample arithmetic. `image` holds the solar images
+//! and `series` holds the light curves and the sunspot series.
 
 mod image;
+mod series;
 
-use numpy::{PyArray2, PyReadonlyArray2};
+use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
 use crate::submodule::new_submodule;
@@ -158,6 +160,61 @@ fn coronagraph_brightness<'py>(
     PyArray2::from_owned_array(py, brightness)
 }
 
+/// The long-channel background of a GOES light curve, one value per draw.
+#[pyfunction]
+fn xray_background<'py>(
+    py: Python<'py>,
+    normals: PyReadonlyArray1<'py, f64>,
+    cadence_minutes: f64,
+) -> Bound<'py, PyArray1<f64>> {
+    PyArray1::from_vec(
+        py,
+        series::xray_background(normals.as_array(), cadence_minutes),
+    )
+}
+
+/// The light curve with one flare added.
+#[pyfunction]
+fn xray_flare<'py>(
+    py: Python<'py>,
+    curve: PyReadonlyArray1<'py, f64>,
+    cadence_minutes: f64,
+    peak_time: f64,
+    peak_flux: f64,
+    rise: f64,
+    decay: f64,
+) -> Bound<'py, PyArray1<f64>> {
+    let flared = series::xray_flare(
+        curve.as_array(),
+        cadence_minutes,
+        peak_time,
+        peak_flux,
+        rise,
+        decay,
+    );
+    PyArray1::from_vec(py, flared)
+}
+
+/// The short and long GOES channels, as `(xrsa, xrsb)`.
+#[pyfunction]
+fn xray_channels<'py>(
+    py: Python<'py>,
+    curve: PyReadonlyArray1<'py, f64>,
+    normals: PyReadonlyArray1<'py, f64>,
+) -> (Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<f64>>) {
+    let (short, long) = series::xray_channels(curve.as_array(), normals.as_array());
+    (PyArray1::from_vec(py, short), PyArray1::from_vec(py, long))
+}
+
+/// The monthly sunspot numbers, one per normal draw.
+#[pyfunction]
+fn sunspot_numbers<'py>(
+    py: Python<'py>,
+    normals: PyReadonlyArray1<'py, f64>,
+) -> Bound<'py, PyArray1<f64>> {
+    PyArray1::from_vec(py, series::sunspot_numbers(normals.as_array()))
+}
+
 /// Creates `heliox._core.synthetic` and adds its functions to it.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "synthetic")?;
@@ -172,5 +229,9 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(photon_noise, &module)?)?;
     module.add_function(wrap_pyfunction!(streamer_field, &module)?)?;
     module.add_function(wrap_pyfunction!(coronagraph_brightness, &module)?)?;
+    module.add_function(wrap_pyfunction!(xray_background, &module)?)?;
+    module.add_function(wrap_pyfunction!(xray_flare, &module)?)?;
+    module.add_function(wrap_pyfunction!(xray_channels, &module)?)?;
+    module.add_function(wrap_pyfunction!(sunspot_numbers, &module)?)?;
     Ok(())
 }
