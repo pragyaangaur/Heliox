@@ -152,3 +152,14 @@ def test_rotation_agrees_with_scipy_affine_transform(order):
     expected = np.where(valid > 0.5, expected, np.nan)
     result = affine_transform(image, rmatrix, order=order)
     assert np.allclose(result, expected, rtol=1e-10, atol=1e-10, equal_nan=True)
+
+
+@pytest.mark.parametrize("shape", [(0, 4), (4, 0)])
+def test_empty_image_gives_an_empty_result(shape):
+    result = affine_transform(np.zeros(shape), rotation_matrix_2d(90 * u.deg), order=3)
+    assert result.shape == shape
+
+
+def test_empty_image_still_rejects_a_singular_matrix():
+    with pytest.raises(ValueError, match="singular"):
+        affine_transform(np.zeros((0, 4)), np.zeros((2, 2)))

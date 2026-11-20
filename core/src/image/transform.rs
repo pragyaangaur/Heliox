@@ -39,6 +39,11 @@ fn transform(
         [inverse[0][1], inverse[0][0]],
     ];
 
+    if image.is_empty() {
+        // There is nothing to sample, so the result is empty with the same shape.
+        return Ok((Array2::zeros(image.dim()), false));
+    }
+
     let (rows, cols) = image.dim();
     let array_center = [(cols as f64 - 1.0) / 2.0, (rows as f64 - 1.0) / 2.0];
     let image_center = image_center.unwrap_or(array_center);
