@@ -16,6 +16,10 @@ numpy = "0.30"
 ndarray = "0.17"
 rayon = "1.12"
 
+[build-dependencies]
+# Reads the Python that pyo3 is configured with, so build.rs can add an rpath on macOS.
+pyo3-build-config = "0.30"
+
 [features]
 # Enabled by maturin (see the root pyproject.toml). Left off for plain cargo runs,
 # which would otherwise have to link libpython.

@@ -10,6 +10,7 @@ The build uses maturin and pyo3. Installing Heliox with `pip install -e ".[test]
 core/
   Cargo.toml          the crate, named heliox-core, with its dependencies
   Cargo.lock          the exact dependency versions
+  build.rs            adds the libpython rpath for cargo test on macOS
   src/
     lib.rs            declares the submodules and registers them with Python
     submodule.rs      creates each Python submodule and adds it to sys.modules
@@ -47,6 +48,9 @@ Run these from this folder before committing Rust changes:
 ```
 cargo fmt --check
 cargo clippy -- -D warnings
+cargo test
 ```
+
+`cargo test` runs the Rust unit tests. The test binaries link libpython, so `build.rs` writes its location into the binaries on macOS. Nothing has to be set by hand. The Python used is the one pyo3 finds, which is `python3` on the `PATH` unless `PYO3_PYTHON` names another interpreter, for example `PYO3_PYTHON=/path/to/venv/bin/python cargo test`. The wheel that maturin builds is not affected, because maturin enables the `extension-module` feature and `build.rs` does nothing when it is on.
 
 Then run `pytest` from the repository root to test the Python side.
