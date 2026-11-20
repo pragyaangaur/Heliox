@@ -30,12 +30,12 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-/// Arrays shorter than this are bisected on the calling thread, because the cost of waking the
-/// thread pool every step would be larger than the work.
+/// Arrays shorter than this are bisected on the calling thread, because waking the thread pool
+/// costs more than the work.
 const PARALLEL_MIN_LEN: usize = 2048;
 
-/// Elements handled by one rayon task.
-const CHUNK: usize = 1024;
+/// The smallest chunk handed to one rayon task in the chunked version.
+const MIN_CHUNK: usize = 256;
 
 /// The bisection halves the bracket every step, so even `tol = 0` ends in at most about 1100
 /// steps for finite input. A bracket that cannot shrink (a NaN in `y`, or an infinite `y`) would
@@ -72,21 +72,6 @@ impl Width {
     }
 }
 
-/// One bisection step on one element. Returns the new width `b - a`.
-#[inline(always)]
-fn step(a: &mut f64, b: &mut f64, y: f64, m: f64, s: f64, reciprocal_divide: bool, m_recip: f64) -> f64 {
-    let c = (*a + *b) / 2.0;
-    let q = if reciprocal_divide { c * m_recip } else { c / m };
-    let f_c = (c - y) + s * q.ln();
-    if f_c <= 0.0 {
-        *a = c;
-    }
-    if f_c >= 0.0 {
-        *b = c;
-    }
-    *b - *a
-}
-
 /// Scalar settings shared by all elements.
 #[derive(Clone, Copy)]
 pub struct Settings {
@@ -98,67 +83,200 @@ pub struct Settings {
     pub max_steps: usize,
 }
 
-/// `m` has length 1 (one value for all elements) or the length of `y`.
-pub fn proximal_entropy(y: &[f64], m: &[f64], cfg: Settings) -> Result<Vec<f64>, String> {
+/// The values of `m`, one per element or one for all, with their reciprocals when they are needed.
+#[derive(Clone, Copy)]
+struct Prior<'a> {
+    m: &'a [f64],
+    recip: &'a [f64],
+}
+
+/// One bisection step on one element. Returns the new width `b - a`.
+#[inline(always)]
+fn step(a: &mut f64, b: &mut f64, y: f64, m: f64, mr: f64, cfg: &Settings) -> f64 {
+    let c = (*a + *b) / 2.0;
+    let q = if cfg.reciprocal_divide { c * mr } else { c / m };
+    let f_c = (c - y) + cfg.s * q.ln();
+    if f_c <= 0.0 {
+        *a = c;
+    }
+    if f_c >= 0.0 {
+        *b = c;
+    }
+    *b - *a
+}
+
+/// One step on every element of a block. `y` and the `m` slices start at the block's first element.
+#[inline(always)]
+fn step_block(a: &mut [f64], b: &mut [f64], y: &[f64], p: Prior, cfg: &Settings) -> Width {
+    let mut w = Width::EMPTY;
+    if p.m.len() == 1 {
+        let (m, mr) = (p.m[0], p.recip.first().copied().unwrap_or(0.0));
+        for k in 0..a.len() {
+            w.push(step(&mut a[k], &mut b[k], y[k], m, mr, cfg));
+        }
+    } else {
+        for k in 0..a.len() {
+            let mr = if cfg.reciprocal_divide { p.recip[k] } else { 0.0 };
+            w.push(step(&mut a[k], &mut b[k], y[k], p.m[k], mr, cfg));
+        }
+    }
+    w
+}
+
+fn width_block(a: &[f64], b: &[f64]) -> Width {
+    let mut w = Width::EMPTY;
+    for k in 0..a.len() {
+        w.push(b[k] - a[k]);
+    }
+    w
+}
+
+fn slice_prior<'a>(p: Prior<'a>, start: usize, len: usize) -> Prior<'a> {
+    if p.m.len() == 1 {
+        p
+    } else {
+        Prior {
+            m: &p.m[start..start + len],
+            recip: if p.recip.is_empty() { p.recip } else { &p.recip[start..start + len] },
+        }
+    }
+}
+
+fn no_convergence(max_steps: usize) -> String {
+    format!("the bisection did not converge in {max_steps} steps, check y for NaN or infinite values")
+}
+
+/// The starting `a`, the starting `b` and the reciprocals of `m` (empty when they are not needed).
+type Start = (Vec<f64>, Vec<f64>, Vec<f64>);
+
+/// Check the arguments and start the bracket: `a = 1e-24` and `b = np.where(y > m, y, m)`.
+fn setup(y: &[f64], m: &[f64], cfg: &Settings) -> Result<Start, String> {
     let n = y.len();
     if m.len() != 1 && m.len() != n {
         return Err("m must be a scalar or have the same length as y".to_string());
     }
-    let m_scalar = m.len() == 1;
-    let m_at = |i: usize| if m_scalar { m[0] } else { m[i] };
+    let recip = if cfg.reciprocal_divide { m.iter().map(|v| 1.0 / v).collect() } else { Vec::new() };
+    let m_at = |i: usize| if m.len() == 1 { m[0] } else { m[i] };
+    let b = (0..n).map(|i| if y[i] > m_at(i) { y[i] } else { m_at(i) }).collect();
+    Ok((vec![1e-24_f64; n], b, recip))
+}
 
-    let mut a = vec![1e-24_f64; n];
-    // np.where(y > m, y, m)
-    let mut b: Vec<f64> = (0..n).map(|i| if y[i] > m_at(i) { y[i] } else { m_at(i) }).collect();
+fn midpoints(a: &[f64], b: &[f64]) -> Vec<f64> {
+    a.iter().zip(b.iter()).map(|(&x, &z)| (x + z) / 2.0).collect()
+}
 
+/// The original loop: every step is taken for all elements and the global test is evaluated
+/// between steps. The steps are split over rayon tasks and the largest width is reduced.
+pub fn proximal_entropy_lockstep(y: &[f64], m: &[f64], cfg: Settings) -> Result<Vec<f64>, String> {
+    let n = y.len();
+    let (mut a, mut b, recip) = setup(y, m, &cfg)?;
+    let prior = Prior { m, recip: &recip };
     let parallel = n >= PARALLEL_MIN_LEN;
-    let width_of = |a: &[f64], b: &[f64]| -> Width {
-        let mut w = Width::EMPTY;
-        for i in 0..a.len() {
-            w.push(b[i] - a[i]);
-        }
-        w
-    };
+    let chunk = n.div_ceil(rayon::current_num_threads() * 4).max(MIN_CHUNK);
     let mut width = if parallel {
-        a.par_chunks(CHUNK)
-            .zip(b.par_chunks(CHUNK))
-            .map(|(ca, cb)| width_of(ca, cb))
+        a.par_chunks(chunk)
+            .zip(b.par_chunks(chunk))
+            .map(|(ca, cb)| width_block(ca, cb))
             .reduce(|| Width::EMPTY, Width::merge)
     } else {
-        width_of(&a, &b)
+        width_block(&a, &b)
     };
-
-    let m_recip_all = |i: usize| 1.0 / m_at(i);
     let mut steps = 0usize;
     while width.keep_going(cfg.tol) {
         if steps >= cfg.max_steps {
-            return Err(format!(
-                "the bisection did not converge in {} steps, check y for NaN or infinite values",
-                cfg.max_steps
-            ));
+            return Err(no_convergence(cfg.max_steps));
         }
         steps += 1;
-        let run_chunk = |start: usize, ca: &mut [f64], cb: &mut [f64]| -> Width {
-            let mut w = Width::EMPTY;
-            for k in 0..ca.len() {
-                let i = start + k;
-                let mi = m_at(i);
-                let mr = if cfg.reciprocal_divide { m_recip_all(i) } else { 0.0 };
-                w.push(step(&mut ca[k], &mut cb[k], y[i], mi, cfg.s, cfg.reciprocal_divide, mr));
-            }
-            w
-        };
         width = if parallel {
-            a.par_chunks_mut(CHUNK)
-                .zip(b.par_chunks_mut(CHUNK))
+            a.par_chunks_mut(chunk)
+                .zip(b.par_chunks_mut(chunk))
                 .enumerate()
-                .map(|(j, (ca, cb))| run_chunk(j * CHUNK, ca, cb))
+                .map(|(j, (ca, cb))| {
+                    let start = j * chunk;
+                    step_block(ca, cb, &y[start..start + ca.len()], slice_prior(prior, start, ca.len()), &cfg)
+                })
                 .reduce(|| Width::EMPTY, Width::merge)
         } else {
-            run_chunk(0, &mut a, &mut b)
+            step_block(&mut a, &mut b, y, prior, &cfg)
         };
     }
-    Ok(a.iter().zip(b.iter()).map(|(&x, &z)| (x + z) / 2.0).collect())
+    Ok(midpoints(&a, &b))
+}
+
+/// Can the shared step count be found without synchronising every step? See `proximal_entropy`.
+fn counts_are_independent(y: &[f64], m: &[f64]) -> bool {
+    let ok_y = y.iter().all(|v| v.is_finite() && v.abs() < 1e300);
+    let ok_m = m.iter().all(|v| v.is_finite() && *v >= 1e-24 && *v < 1e300);
+    ok_y && ok_m
+}
+
+/// Bisect all elements exactly as the original does, with two parallel passes instead of one per step.
+///
+/// Every element follows its own sequence of brackets, which does not depend on the other
+/// elements. The original stops at the first step `K` where `max(b - a) <= tol`, and all elements
+/// are then at step `K`. When no width is NaN and every bracket only ever shrinks, the width of an
+/// element never grows again once it is at most `tol`, so `K` is the largest of the per-element
+/// counts `k_i` (the first step with `b - a <= tol`). The first pass runs each block of elements
+/// in lockstep until the block's own test fails, which takes the block to its largest `k_i`.
+/// The second pass runs every block on to the global `K`. Each element takes exactly `K` steps in
+/// all, the same as in the original, so the result is the same bit for bit.
+///
+/// The widths shrink and none is NaN when `y` and `m` are finite and below 1e300 (so `a + b`
+/// cannot overflow), and `m >= 1e-24` so that `b >= a` at the start. `c = fl((a + b) / 2)` then lies in
+/// `[a, b]`, and a rounded subtraction is monotone, so `b - c <= b - a` and `c - a <= b - a`.
+/// Other input takes the lockstep path.
+pub fn proximal_entropy(y: &[f64], m: &[f64], cfg: Settings) -> Result<Vec<f64>, String> {
+    let n = y.len();
+    if !counts_are_independent(y, m) {
+        return proximal_entropy_lockstep(y, m, cfg);
+    }
+    let (mut a, mut b, recip) = setup(y, m, &cfg)?;
+    let prior = Prior { m, recip: &recip };
+    let chunk = if n >= PARALLEL_MIN_LEN { n.div_ceil(rayon::current_num_threads() * 4).max(MIN_CHUNK) } else { n.max(1) };
+
+    // Pass 1: each block to its own stopping step.
+    let first = |j: usize, ca: &mut [f64], cb: &mut [f64]| -> Result<usize, String> {
+        let start = j * chunk;
+        let (yy, pp) = (&y[start..start + ca.len()], slice_prior(prior, start, ca.len()));
+        let mut width = width_block(ca, cb);
+        let mut steps = 0usize;
+        while width.keep_going(cfg.tol) {
+            if steps >= cfg.max_steps {
+                return Err(no_convergence(cfg.max_steps));
+            }
+            steps += 1;
+            width = step_block(ca, cb, yy, pp, &cfg);
+        }
+        Ok(steps)
+    };
+    let counts: Vec<usize> = if n >= PARALLEL_MIN_LEN {
+        a.par_chunks_mut(chunk)
+            .zip(b.par_chunks_mut(chunk))
+            .enumerate()
+            .map(|(j, (ca, cb))| first(j, ca, cb))
+            .collect::<Result<_, _>>()?
+    } else {
+        vec![first(0, &mut a, &mut b)?]
+    };
+    let total = counts.iter().copied().max().unwrap_or(0);
+
+    // Pass 2: bring every block up to the global step count.
+    let second = |j: usize, ca: &mut [f64], cb: &mut [f64]| {
+        let start = j * chunk;
+        let (yy, pp) = (&y[start..start + ca.len()], slice_prior(prior, start, ca.len()));
+        for _ in counts[j]..total {
+            step_block(ca, cb, yy, pp, &cfg);
+        }
+    };
+    if n >= PARALLEL_MIN_LEN {
+        a.par_chunks_mut(chunk)
+            .zip(b.par_chunks_mut(chunk))
+            .enumerate()
+            .for_each(|(j, (ca, cb))| second(j, ca, cb));
+    } else {
+        second(0, &mut a, &mut b);
+    }
+    Ok(midpoints(&a, &b))
 }
 
 /// Entry point for Python. `y` and `m` are float64 and contiguous. The GIL is released while the
@@ -273,6 +391,51 @@ mod tests {
     }
 
     #[test]
+    fn two_pass_version_matches_lockstep_bit_for_bit() {
+        let mut seed = 11;
+        for &n in &[0usize, 1, 5, 255, 256, 257, 2047, 2048, 2049, 4225, 7001, 20000] {
+            let y: Vec<f64> = (0..n).map(|_| (lcg(&mut seed) - 0.3) * 10f64.powf(lcg(&mut seed) * 7.0 - 3.0)).collect();
+            let m_array: Vec<f64> = (0..n).map(|_| 0.01 + lcg(&mut seed) * 30.0).collect();
+            for &rd in &[false, true] {
+                for &tol in &[1e-3, 1e-10, 1e-12] {
+                    for m in [vec![15.8], m_array.clone()] {
+                        if m.len() != 1 && m.len() != n {
+                            continue;
+                        }
+                        let c = Settings { s: 3e-3, tol, reciprocal_divide: rd, max_steps: MAX_STEPS };
+                        assert!(counts_are_independent(&y, &m));
+                        let fast = proximal_entropy(&y, &m, c).unwrap();
+                        let slow = proximal_entropy_lockstep(&y, &m, c).unwrap();
+                        assert_eq!(fast.len(), slow.len());
+                        assert!(fast.iter().zip(slow.iter()).all(|(f, s)| f.to_bits() == s.to_bits()), "n = {n}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn blocks_with_different_step_counts_end_at_the_same_step() {
+        // One block holds elements that need many more steps (a wide bracket) than the others.
+        let n = 6000;
+        let y: Vec<f64> = (0..n).map(|i| if i < 100 { 5.0e5 } else { 0.5 }).collect();
+        let c = cfg(0.2, 1e-10);
+        let fast = proximal_entropy(&y, &[1.0], c).unwrap();
+        let slow = proximal_entropy_lockstep(&y, &[1.0], c).unwrap();
+        assert!(fast.iter().zip(slow.iter()).all(|(f, s)| f.to_bits() == s.to_bits()));
+    }
+
+    #[test]
+    fn non_finite_input_takes_the_lockstep_path() {
+        assert!(!counts_are_independent(&[1.0, f64::NAN], &[1.0]));
+        assert!(!counts_are_independent(&[1.0, f64::INFINITY], &[1.0]));
+        assert!(!counts_are_independent(&[1.0], &[1e-30]));
+        assert!(!counts_are_independent(&[1.0], &[f64::NAN]));
+        assert!(!counts_are_independent(&[1e305], &[1.0]));
+        assert!(counts_are_independent(&[1.0, -3.0], &[1.0]));
+    }
+
+    #[test]
     fn array_m_matches_the_plain_loop() {
         let mut seed = 3;
         let n = 3000;
@@ -295,7 +458,7 @@ mod tests {
     fn zero_f_sets_both_ends() {
         // With s = 0, f(c) = c - y. The midpoint of 1 and 3 is 2, which is y, so f is exactly zero.
         let (mut a, mut b) = (1.0, 3.0);
-        let w = step(&mut a, &mut b, 2.0, 1.0, 0.0, false, 1.0);
+        let w = step(&mut a, &mut b, 2.0, 1.0, 1.0, &cfg(0.0, 1e-10));
         assert_eq!((a, b, w), (2.0, 2.0, 0.0));
     }
 
