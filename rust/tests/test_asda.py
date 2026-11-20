@@ -204,12 +204,28 @@ def test_mixed_float32_float64():
     assert_same(expected, out)
 
 
-@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.int64, np.uint8])
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.int64])
 def test_integer_inputs(dtype):
+    # Gamma is bounded by 48/49 in magnitude for r = 3 because the centre point never contributes,
+    # so truncating it into an integer output always gives 0 and the integer output is zero for
+    # both versions by construction. The comparison with the original is therefore backed by a
+    # second check that the float64 gammas of the same values are far from zero, which shows the
+    # integer inputs really are processed and not just ignored.
+    y, x = np.mgrid[0:40, 0:40].astype(np.float64)
+    r2 = (x - 20) ** 2 + (y - 19) ** 2 + 1e-9
+    swirl = (1 - np.exp(-r2 / 30)) / r2
     rng = np.random.default_rng(18)
-    vx = rng.integers(0, 100, size=(18, 18)).astype(dtype)
-    vy = rng.integers(0, 100, size=(18, 18)).astype(dtype)
-    assert_same(asda.calculate_gamma_values(vx, vy), rs_gamma(vx, vy))
+    vx = np.rint(-(y - 19) * swirl * 100000 + rng.normal(size=r2.shape) * 50).astype(dtype)
+    vy = np.rint((x - 20) * swirl * 100000 + rng.normal(size=r2.shape) * 50).astype(dtype)
+    assert np.abs(vx).max() > 1000
+    expected = asda.calculate_gamma_values(vx, vy)
+    out = rs_gamma(vx, vy)
+    assert expected.dtype == out.dtype == dtype
+    assert_same(expected, out)
+    as_float = asda.calculate_gamma_values(vx.astype(np.float64), vy.astype(np.float64))
+    assert np.abs(as_float).max() > 0.5
+    assert_same(np.trunc(as_float).astype(dtype), out)
+    assert_same(as_float, rs_gamma(vx.astype(np.float64), vy.astype(np.float64)))
 
 
 def test_output_is_new_and_writable():
