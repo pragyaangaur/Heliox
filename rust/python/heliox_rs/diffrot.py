@@ -106,8 +106,12 @@ def _wcs_parameters(smap):
         return None
     if wcs.det2im1 is not None or wcs.det2im2 is not None or wcs.has_distortion:
         return None
-    wcs.wcs.set()
     if list(wcs.wcs.ctype) != ["HPLN-TAN", "HPLT-TAN"]:
+        return None
+    try:
+        # wcslib converts all angles to degrees here, so the arrays read below are in degrees.
+        wcs.wcs.set()
+    except Exception:  # noqa: BLE001
         return None
     if [str(unit) for unit in wcs.wcs.cunit] != ["deg", "deg"]:
         return None
