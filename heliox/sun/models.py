@@ -6,10 +6,10 @@ physics: differential rotation, limb darkening, and the conversion between
 sunspot number conventions.
 """
 
-import numpy as np
-
 import astropy.units as u
 
+from heliox._core import sun as _rust
+from heliox.sun._position import _flat, _unshape
 from heliox.util.units import sfu
 
 __all__ = [
@@ -95,18 +95,18 @@ def differential_rotation(duration, latitude, *, model="howard", frame_time="sid
         if coefficients.shape != (3,):
             raise ValueError("A custom model must supply exactly three coefficients.")
 
-    a, b, c = coefficients.to(u.deg / u.day)
-    sin_squared = np.sin(u.Quantity(latitude, u.deg)) ** 2
-    rate = a + b * sin_squared + c * sin_squared**2
-
-    if frame_time == "synodic":
-        # The Earth moves roughly 360/365.25 degrees a day along its orbit, so
-        # a feature has to turn that much further to face us again.
-        rate = rate - 0.9856 * u.deg / u.day
-    elif frame_time != "sidereal":
+    if frame_time not in ("sidereal", "synodic"):
         raise ValueError("frame_time must be either 'sidereal' or 'synodic'.")
 
-    return (rate * u.Quantity(duration, u.day)).to(u.deg)
+    a, b, c = coefficients.to_value(u.deg / u.day)
+    shape, (latitude_deg, days) = _flat(
+        u.Quantity(latitude, u.deg).to_value(u.deg),
+        u.Quantity(duration, u.day).to_value(u.day),
+    )
+    angle = _rust.differential_rotation(
+        latitude_deg, days, float(a), float(b), float(c), frame_time == "synodic"
+    )
+    return _unshape(angle, shape) * u.deg
 
 
 def limb_darkening(radial_position, wavelength=6000 * u.AA, *, coefficients=None):
@@ -152,37 +152,14 @@ def limb_darkening(radial_position, wavelength=6000 * u.AA, *, coefficients=None
         coefficients = _limb_darkening_coefficients(wavelength)
     u1, u2 = coefficients
 
-    r = np.asarray(radial_position, dtype=float)
-    on_disc = r <= 1.0
-    mu = np.zeros_like(r)
-    mu[on_disc] = np.sqrt(1.0 - r[on_disc] ** 2)
-
-    intensity = 1.0 - u1 * (1.0 - mu) - u2 * (1.0 - mu) ** 2
-    return np.where(on_disc, np.clip(intensity, 0.0, None), 0.0)
-
-
-# Quadratic limb darkening coefficients tabulated against wavelength, from
-# Pierce & Slaughter (1977) and Neckel & Labs (1994).
-_LIMB_DARKENING_TABLE = {
-    # wavelength (angstrom): (u1, u2)
-    3000: (0.88, -0.23),
-    4000: (0.93, -0.23),
-    5000: (0.83, -0.17),
-    6000: (0.72, -0.10),
-    7000: (0.65, -0.08),
-    8000: (0.58, -0.06),
-    10000: (0.50, -0.05),
-    20000: (0.35, -0.03),
-}
+    shape, (r,) = _flat(radial_position)
+    return _unshape(_rust.limb_darkening(r, float(u1), float(u2)), shape)
 
 
 def _limb_darkening_coefficients(wavelength):
     """Interpolate ``(u1, u2)`` from the tabulated values."""
-    angstrom = u.Quantity(wavelength, u.AA).to_value(u.AA)
-    grid = np.array(sorted(_LIMB_DARKENING_TABLE))
-    u1 = np.interp(angstrom, grid, [_LIMB_DARKENING_TABLE[k][0] for k in grid])
-    u2 = np.interp(angstrom, grid, [_LIMB_DARKENING_TABLE[k][1] for k in grid])
-    return float(u1), float(u2)
+    angstrom = float(u.Quantity(wavelength, u.AA).to_value(u.AA))
+    return _rust.limb_darkening_coefficients(angstrom)
 
 
 def sunspot_number_to_flux(sunspot_number):
@@ -215,8 +192,5 @@ def sunspot_number_to_flux(sunspot_number):
     >>> sunspot_number_to_flux(0)
     <Quantity 63.7 sfu>
     """
-    ssn = np.asarray(sunspot_number, dtype=float)
-    if np.any(ssn < 0):
-        raise ValueError("The sunspot number cannot be negative.")
-    flux = 63.7 + 0.728 * ssn + 0.00089 * ssn**2
-    return flux * sfu
+    shape, (ssn,) = _flat(sunspot_number)
+    return _unshape(_rust.sunspot_flux(ssn), shape) * sfu

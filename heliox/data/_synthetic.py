@@ -17,6 +17,7 @@ from scipy.ndimage import gaussian_filter
 import astropy.units as u
 from astropy.io import fits
 
+from heliox._core import synthetic as _core
 from heliox.coordinates import get_earth
 from heliox.sun import constants
 from heliox.sun.models import limb_darkening
@@ -33,19 +34,19 @@ __all__ = [
 ]
 
 
+def _pixel_shape(shape):
+    """The shape as a pair of plain integers, ``(rows, columns)``."""
+    return (int(shape[0]), int(shape[1]))
+
+
 def _radial_grid(shape, centre, radius_in_pixels):
     """Fractional distance from disc centre, in units of the solar radius."""
-    rows = np.arange(shape[0])[:, np.newaxis]
-    cols = np.arange(shape[1])[np.newaxis, :]
-    return np.hypot(cols - centre[0], rows - centre[1]) / radius_in_pixels
+    return _core.radial_grid(_pixel_shape(shape), centre, radius_in_pixels)
 
 
 def _active_regions(shape, radial, rng, count, amplitude, size):
     """Place bright blobs on the visible disc, avoiding the poles."""
-    field = np.zeros(shape, dtype=float)
-    rows = np.arange(shape[0])[:, np.newaxis]
-    cols = np.arange(shape[1])[np.newaxis, :]
-
+    gaussians = []
     placed = 0
     attempts = 0
     while placed < count and attempts < 200 * count:
@@ -61,13 +62,9 @@ def _active_regions(shape, radial, rng, count, amplitude, size):
             continue
 
         width = size * rng.uniform(0.6, 1.6)
-        field += (
-            amplitude
-            * rng.uniform(0.4, 1.0)
-            * np.exp(-((cols - x) ** 2 + (rows - y) ** 2) / (2 * width**2))
-        )
+        gaussians.append((x, y, 2 * width**2, amplitude * rng.uniform(0.4, 1.0)))
         placed += 1
-    return field
+    return _core.gaussian_sum(_pixel_shape(shape), gaussians)
 
 
 def make_disc_image(
@@ -120,31 +117,21 @@ def make_disc_image(
     centre = ((shape[1] - 1) / 2, (shape[0] - 1) / 2)
     radial = _radial_grid(shape, centre, radius_in_pixels)
 
-    on_disc = radial <= 1.0
     is_euv = u.Quantity(wavelength, u.AA) < 2000 * u.AA
-
-    image = np.zeros(shape, dtype=float)
 
     if is_euv:
         # Optically thin emission: brightness grows towards the limb because
         # the line of sight is longer, then falls off above it.
-        with np.errstate(invalid="ignore", divide="ignore"):
-            path_length = np.where(
-                on_disc, 1.0 / np.sqrt(1.0 - np.clip(radial, 0, 0.995) ** 2), 0.0
-            )
-        image[on_disc] = 100.0 * np.clip(path_length[on_disc], 1.0, 4.0)
-        # Coronal emission above the limb, decaying with height.
-        above = ~on_disc
-        image[above] = 400.0 * np.exp(-(radial[above] - 1.0) / 0.13)
+        image = _core.euv_emission(radial)
         blob_amplitude = 1200.0
     else:
-        image[on_disc] = 1000.0 * limb_darkening(radial[on_disc], wavelength=wavelength)
+        profile = limb_darkening(radial, wavelength=wavelength)
+        image = _core.visible_emission(radial, profile)
         blob_amplitude = 250.0
 
     # Granulation: correlated noise, only on the disc.
     granulation = gaussian_filter(rng.normal(size=shape), sigma=max(shape) / 400)
-    granulation /= np.abs(granulation).max() or 1.0
-    image = image * (1.0 + 0.08 * granulation * on_disc)
+    image = _core.granulate(image, granulation, radial)
 
     if active_regions:
         image = image + _active_regions(
@@ -152,8 +139,7 @@ def make_disc_image(
         )
 
     # Photon noise, and a small dark level so nothing is exactly zero.
-    image = image + rng.normal(scale=np.sqrt(np.clip(image, 1.0, None)) * 0.3)
-    return np.clip(image, 0.0, None)
+    return _core.photon_noise(image, rng.standard_normal(_pixel_shape(shape)))
 
 
 def make_magnetogram(shape=(1024, 1024), *, field_of_view=1.15, pairs=5, seed=None):
@@ -191,12 +177,8 @@ def make_magnetogram(shape=(1024, 1024), *, field_of_view=1.15, pairs=5, seed=No
     radius_in_pixels = min(shape) / (2 * field_of_view)
     centre = ((shape[1] - 1) / 2, (shape[0] - 1) / 2)
     radial = _radial_grid(shape, centre, radius_in_pixels)
-    on_disc = radial <= 1.0
 
-    rows = np.arange(shape[0])[:, np.newaxis]
-    cols = np.arange(shape[1])[np.newaxis, :]
-    field = np.zeros(shape, dtype=float)
-
+    gaussians = []
     for _ in range(pairs):
         fractional_radius = rng.uniform(0, 0.85)
         angle = rng.uniform(0, 2 * np.pi)
@@ -209,19 +191,12 @@ def make_magnetogram(shape=(1024, 1024), *, field_of_view=1.15, pairs=5, seed=No
         strength = rng.uniform(500, 2500)
 
         for sign, offset in ((1, -separation / 2), (-1, separation / 2)):
-            field += (
-                sign
-                * strength
-                * np.exp(
-                    -((cols - (x + offset)) ** 2 + (rows - (y + offset * tilt)) ** 2)
-                    / (2 * width**2)
-                )
-            )
+            gaussians.append((x + offset, y + offset * tilt, 2 * width**2, sign * strength))
+    field = _core.gaussian_sum(_pixel_shape(shape), gaussians)
 
-    # Quiet-Sun salt-and-pepper network.
+    # Quiet-Sun salt-and-pepper network, scaled to 20 gauss at its peak.
     network = gaussian_filter(rng.normal(size=shape), sigma=max(shape) / 300)
-    network *= 20.0 / (np.abs(network).max() or 1.0)
-    return np.where(on_disc, field + network, 0.0)
+    return _core.network_field(field, network, radial, 20.0)
 
 
 def make_coronagraph_image(shape=(512, 512), *, occulter=2.2, field_of_view=6.0, seed=None):
@@ -258,30 +233,22 @@ def make_coronagraph_image(shape=(512, 512), *, occulter=2.2, field_of_view=6.0,
     radius_in_pixels = min(shape) / (2 * field_of_view)
     centre = ((shape[1] - 1) / 2, (shape[0] - 1) / 2)
 
-    rows = np.arange(shape[0])[:, np.newaxis]
-    cols = np.arange(shape[1])[np.newaxis, :]
-    dx = cols - centre[0]
-    dy = rows - centre[1]
-    radial = np.hypot(dx, dy) / radius_in_pixels
-    position_angle = np.arctan2(dy, dx)
-
-    # The K corona falls off roughly as r^-7 close in, flattening further out.
-    with np.errstate(divide="ignore", invalid="ignore"):
-        brightness = 1e4 * np.clip(radial, 1.0, None) ** -3.5
+    radial = _radial_grid(shape, centre, radius_in_pixels)
+    position_angle = _core.position_angle_grid(_pixel_shape(shape), centre)
 
     # Streamers: a few broad enhancements at fixed position angles, brightest
     # near the equator as they are at solar minimum.
-    streamers = np.zeros(shape)
+    streamers = []
     for _ in range(4):
         angle = rng.uniform(0, 2 * np.pi)
         width = rng.uniform(0.15, 0.4)
-        separation = np.arctan2(np.sin(position_angle - angle), np.cos(position_angle - angle))
-        streamers += rng.uniform(0.5, 1.5) * np.exp(-(separation**2) / (2 * width**2))
-    brightness = brightness * (1.0 + streamers)
+        streamers.append((angle, 2 * width**2, rng.uniform(0.5, 1.5)))
+    enhancement = _core.streamer_field(position_angle, streamers)
 
-    brightness = np.where(radial < occulter, 0.0, brightness)
-    brightness += rng.normal(scale=2.0, size=shape) * (radial >= occulter)
-    return np.clip(brightness, 0.0, None)
+    # The K corona falls off roughly as r^-7 close in, flattening further out.
+    return _core.coronagraph_brightness(
+        radial, enhancement, rng.standard_normal(_pixel_shape(shape)), occulter
+    )
 
 
 def make_header(
@@ -534,42 +501,28 @@ def make_xray_lightcurve(
         u.Quantity(duration, u.s).to_value(u.s) / u.Quantity(cadence, u.s).to_value(u.s)
     )
     times = parse_time(start) + np.arange(n_samples) * u.Quantity(cadence, u.s)
-    minutes = np.arange(n_samples) * u.Quantity(cadence, u.s).to_value(u.minute)
+    cadence_minutes = u.Quantity(cadence, u.s).to_value(u.minute)
+    last_minute = (n_samples - 1) * cadence_minutes
 
     # A slowly varying B-class background.
-    background = 1.5e-7 * (
-        1
-        + 0.3 * np.sin(2 * np.pi * minutes / (minutes[-1] or 1))
-        + 0.05 * rng.normal(size=n_samples)
-    )
-    long_channel = np.clip(background, 1e-9, None)
+    long_channel = _core.xray_background(rng.standard_normal(n_samples), cadence_minutes)
 
     for _ in range(flares):
-        peak_time = rng.uniform(0.05, 0.95) * minutes[-1]
+        peak_time = rng.uniform(0.05, 0.95) * last_minute
         # Flare classes are logarithmic; draw a peak between C1 and X1.
         peak_flux = 10 ** rng.uniform(-6, -4)
         rise = rng.uniform(2, 8)
         decay = rise * rng.uniform(3, 8)
-
-        offset = minutes - peak_time
-        profile = np.where(
-            offset < 0,
-            np.exp(offset / rise),
-            np.exp(-offset / decay),
+        long_channel = _core.xray_flare(
+            long_channel, cadence_minutes, peak_time, peak_flux, rise, decay
         )
-        long_channel = long_channel + peak_flux * profile
 
     # The short channel is harder and so is relatively much weaker when quiet,
     # but brightens far more steeply during a flare.
-    ratio = 0.02 + 0.25 * np.clip((np.log10(long_channel) + 7) / 3, 0, 1)
-    short_channel = long_channel * ratio
-    short_channel = short_channel * (1 + 0.05 * rng.normal(size=n_samples))
+    short_channel, long_channel = _core.xray_channels(long_channel, rng.standard_normal(n_samples))
 
     return pd.DataFrame(
-        {
-            "xrsa": np.clip(short_channel, 1e-10, None),
-            "xrsb": np.clip(long_channel, 1e-9, None),
-        },
+        {"xrsa": short_channel, "xrsb": long_channel},
         index=pd.DatetimeIndex(times.datetime, name="time"),
     )
 
@@ -612,14 +565,7 @@ def make_sunspot_series(start="2008-01-01", years=13, seed=None):
 
     # A skewed cycle: the rise to maximum takes about four years and the
     # decline about seven, which is the well known asymmetry.
-    phase = (np.arange(n_months) / 12.0) % 11.0
-    rising = phase < 4.0
-    shape = np.where(
-        rising,
-        np.sin(np.pi * phase / 8.0),
-        np.sin(np.pi * (4.0 + (phase - 4.0) * 4.0 / 7.0) / 8.0),
-    )
-    sunspots = np.clip(120 * shape + rng.normal(scale=12, size=n_months), 0, None)
+    sunspots = _core.sunspot_numbers(rng.standard_normal(n_months))
 
     return pd.DataFrame(
         {
