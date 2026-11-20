@@ -1,0 +1,167 @@
+# Release workflow: builds the wheels and the sdist, checks them, and optionally
+# publishes them to PyPI. See RELEASING.md for the steps the author follows.
+#
+# Publishing is gated twice, so a release cannot reach PyPI by accident:
+#
+#   1. The publish job runs only when a GitHub release is published. A manual
+#      run (workflow_dispatch) builds and tests everything but publishes nothing.
+#   2. The publish job also needs the repository variable PUBLISH_TO_PYPI set to
+#      the exact string 'true' (Settings, Secrets and variables, Actions,
+#      Variables). Until the author sets it, published releases only get their
+#      files attached to the release page.
+#
+# The publish job uses PyPI trusted publishing, so no API token is stored in
+# GitHub. It runs in the 'pypi' environment, which can be given required
+# reviewers in the repository settings.
+
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  wheels:
+    name: Wheel ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64
+            manylinux: "2_28"
+            smoke: native
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64
+            manylinux: "2_28"
+            smoke: native
+          - name: musllinux-x86_64
+            runner: ubuntu-latest
+            target: x86_64
+            manylinux: musllinux_1_2
+            smoke: alpine
+          - name: macos-universal2
+            runner: macos-latest
+            target: universal2-apple-darwin
+            manylinux: auto
+            smoke: native
+          - name: windows-x64
+            runner: windows-latest
+            target: x64
+            manylinux: auto
+            smoke: native
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # The wheel is abi3-py310, so one build covers Python 3.10 and later.
+          # Building and testing on the oldest supported version checks that claim.
+          python-version: "3.10"
+
+      - name: Build the wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          # Pinned to the version used for the local release build. Bump it
+          # deliberately, with the rest of the release tooling.
+          maturin-version: v1.16.0
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --compatibility pypi --out dist
+
+      - name: Smoke test the wheel
+        if: matrix.smoke == 'native'
+        run: python .github/scripts/smoke_test.py "$(ls dist/*.whl)"
+
+      - name: Smoke test the wheel in Alpine Linux
+        if: matrix.smoke == 'alpine'
+        run: |
+          wheel="$(basename "$(ls dist/*.whl)")"
+          docker run --rm \
+            -v "$PWD/.github/scripts:/scripts:ro" \
+            -v "$PWD/dist:/dist:ro" \
+            python:3.10-alpine \
+            python /scripts/smoke_test.py "/dist/$wheel"
+
+      - name: Upload the wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-wheel-${{ matrix.name }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: v1.16.0
+          command: sdist
+          args: --out dist
+
+      - name: Upload the sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  attach:
+    name: Attach to the GitHub release
+    needs: [wheels, sdist]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the built files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Upload the files to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/* --clobber
+
+  publish:
+    name: Publish to PyPI
+    needs: [wheels, sdist]
+    if: github.event_name == 'release' && github.event.action == 'published' && vars.PUBLISH_TO_PYPI == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/heliox/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download the built files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI with trusted publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
