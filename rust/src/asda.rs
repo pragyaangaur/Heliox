@@ -272,6 +272,11 @@ fn run<'py, T: Float + numpy::Element>(
     // `zeros` returns a fresh C contiguous array that nothing else references yet.
     let out = PyArray3::<T>::zeros(py, [rows, cols, 2], false);
     {
+        // SAFETY: `out` was created a few lines above by `zeros`, so it is a fresh C contiguous
+        // array that no Python object and no other Rust reference can see yet, and nothing else
+        // can read or write it while the slice exists. The slice does not outlive this block,
+        // and `out` is only returned afterwards. Releasing the GIL inside `detach` is sound for
+        // the same reason: no Python code can reach the array until it is returned.
         let slice = unsafe { out.as_slice_mut() }
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         py.detach(|| gamma_into(vxv, vyv, r, nrows, ncols, slice));
