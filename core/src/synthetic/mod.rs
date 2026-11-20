@@ -14,13 +14,6 @@ use pyo3::prelude::*;
 use crate::submodule::new_submodule;
 use image::{Gaussian, Streamer};
 
-/// Returns the submodule name. `heliox/tests/test_core.py` checks it for
-/// every submodule, so it stays until that test is updated.
-#[pyfunction]
-fn _ping() -> &'static str {
-    "synthetic"
-}
-
 /// The fractional distance of every pixel from the disc centre.
 #[pyfunction]
 fn radial_grid<'py>(
@@ -218,7 +211,6 @@ fn sunspot_numbers<'py>(
 /// Creates `heliox._core.synthetic` and adds its functions to it.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "synthetic")?;
-    module.add_function(wrap_pyfunction!(_ping, &module)?)?;
     module.add_function(wrap_pyfunction!(radial_grid, &module)?)?;
     module.add_function(wrap_pyfunction!(position_angle_grid, &module)?)?;
     module.add_function(wrap_pyfunction!(euv_emission, &module)?)?;

@@ -10,15 +10,9 @@ use pyo3::prelude::*;
 
 use crate::submodule::new_submodule;
 
-#[pyfunction]
-fn _ping() -> &'static str {
-    "wcs"
-}
-
 /// Creates `heliox._core.wcs` and adds its functions to it.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "wcs")?;
-    module.add_function(wrap_pyfunction!(_ping, &module)?)?;
     module.add_function(wrap_pyfunction!(frames::solar_family, &module)?)?;
     module.add_function(wrap_pyfunction!(frames::ctype_names, &module)?)?;
     module.add_function(wrap_pyfunction!(frames::axis_unit, &module)?)?;
