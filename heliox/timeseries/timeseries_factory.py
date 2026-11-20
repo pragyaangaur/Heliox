@@ -254,8 +254,9 @@ def _read_csv(filepath, **kwargs):
     several space weather archives label their text files.
     """
     meta = MetaDict()
-    for key, value in _core_timeseries.header_pairs(os.fspath(filepath)):
-        meta[key] = value
+    with open(filepath) as stream:
+        for key, value in _core_timeseries.header_pairs(stream):
+            meta[key] = value
 
     frame = pd.read_csv(filepath, comment="#", **kwargs)
     time_column = next(
