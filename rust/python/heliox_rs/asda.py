@@ -11,9 +11,9 @@ Behaviour that follows the original on purpose:
   filled, the rest is zero. With ``factor > 1`` the original takes the loop bounds from the
   unmagnified shape, so the filled block covers only the top left ``1 / factor`` of the magnified
   grid. This is kept.
-* The result dtype is the input dtype for float32 and float64 (and for integer input when
-  ``factor == 1``, where the original truncates the results into an integer array). With
-  ``factor > 1`` it is float64.
+* The result dtype is the promoted dtype of ``vx`` and ``vy`` in native byte order (for integer input the original
+  truncates the results into an integer array). With ``factor > 1`` it is native float64. The
+  window arithmetic is float32 only when both inputs are float32, otherwise float64.
 * NaN terms are dropped from the sums, so a NaN in a window removes one term of ``gamma1`` and
   makes the whole ``gamma2`` of that window zero.
 * An input with ``rows <= 2 r`` or ``cols <= 2 r`` raises `IndexError`, as in the original, where
@@ -82,11 +82,10 @@ def calculate_gamma_values(vx, vy, factor=1, r=3):
         msg = f"Velocity field of shape {vx.shape} is too small for r = {r}, it needs at least {2 * r + 1} pixels per axis"
         raise IndexError(msg)
 
-    dtype = vx.dtype
-    if vy.dtype != dtype:
-        # NumPy promotes mixed inputs when the window arrays are stacked.
-        dtype = np.result_type(vx.dtype, vy.dtype)
-    if dtype.kind not in "fiu" or dtype == np.float16 or dtype.itemsize > 8:
+    # The original stacks the window values of vx and vy, so mixed inputs are promoted, and it
+    # allocates the output with the (promoted) dtype in native byte order.
+    dtype = np.result_type(vx.dtype, vy.dtype)
+    if dtype.kind not in "fiu" or dtype.itemsize > 8 or dtype == np.float16:
         msg = f"Unsupported dtype {dtype}, expected float32, float64 or an integer type"
         raise TypeError(msg)
 
@@ -96,13 +95,15 @@ def calculate_gamma_values(vx, vy, factor=1, r=3):
         vy = np.ascontiguousarray(_reform2d(vy.T, factor).T)
         return _core.gamma_f64(vx, vy, r, nrows, ncols)
 
-    if dtype == np.float32:
-        return _core.gamma_f32(
+    out_dtype = dtype.newbyteorder("=")
+    if dtype.kind == "f" and dtype.itemsize == 4:
+        gamma = _core.gamma_f32(
             np.ascontiguousarray(vx, dtype=np.float32), np.ascontiguousarray(vy, dtype=np.float32), r, nrows, ncols
         )
-    gamma = _core.gamma_f64(
-        np.ascontiguousarray(vx, dtype=np.float64), np.ascontiguousarray(vy, dtype=np.float64), r, nrows, ncols
-    )
-    if dtype != np.float64:
-        gamma = gamma.astype(dtype)
+    else:
+        gamma = _core.gamma_f64(
+            np.ascontiguousarray(vx, dtype=np.float64), np.ascontiguousarray(vy, dtype=np.float64), r, nrows, ncols
+        )
+    if gamma.dtype != out_dtype:
+        gamma = gamma.astype(out_dtype)
     return gamma
