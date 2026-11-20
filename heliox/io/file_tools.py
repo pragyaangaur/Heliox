@@ -2,23 +2,11 @@
 
 from pathlib import Path
 
+from heliox._core import io as _rust
 from heliox.io import _fits
 from heliox.util.exceptions import UnrecognizedFileTypeError
 
 __all__ = ["read_file", "read_file_header", "detect_filetype"]
-
-#: The first few bytes that identify each supported format.
-_MAGIC_NUMBERS = {
-    b"SIMPLE  =": "fits",
-    b"\x00\x00\x00\x0cjP  ": "jp2",
-}
-
-_EXTENSIONS = {
-    ".fits": "fits",
-    ".fit": "fits",
-    ".fts": "fits",
-    ".fits.gz": "fits",
-}
 
 
 def detect_filetype(filepath):
@@ -57,14 +45,9 @@ def detect_filetype(filepath):
     except OSError as exc:
         raise UnrecognizedFileTypeError(f"Could not open {filepath}: {exc}") from exc
 
-    for magic, name in _MAGIC_NUMBERS.items():
-        if head.startswith(magic):
-            return name
-
-    suffix = "".join(path.suffixes).lower()
-    for extension, name in _EXTENSIONS.items():
-        if suffix.endswith(extension):
-            return name
+    name = _rust.detect_filetype(head, "".join(path.suffixes).lower())
+    if name is not None:
+        return name
 
     raise UnrecognizedFileTypeError(
         f"Could not work out the type of {filepath}. heliox reads FITS files; "
