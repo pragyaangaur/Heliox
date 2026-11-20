@@ -1,6 +1,9 @@
 //! The `time` submodule of `heliox._core`.
 //!
-//! Add new functions to this folder and register each one in `register`.
+//! `parse` holds the string recogniser behind `heliox.time.parse_time`. Add new
+//! functions here and register each one in `register`.
+
+mod parse;
 
 use pyo3::prelude::*;
 
@@ -15,5 +18,6 @@ fn _ping() -> &'static str {
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "time")?;
     module.add_function(wrap_pyfunction!(_ping, &module)?)?;
+    module.add_class::<parse::TimeFormats>()?;
     Ok(())
 }
