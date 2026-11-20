@@ -5,6 +5,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 
 import heliox.map
+from heliox._core.maps import nearest_pixel_indices
 from heliox.coordinates import HeliographicStonyhurst
 from heliox.data.sample import AIA_171_IMAGE
 from heliox.map.maputils import (
@@ -178,6 +179,14 @@ def test_sample_at_coords(aia):
 def test_sample_at_coords_is_vectorised(aia):
     coordinates = SkyCoord([0, 100] * u.arcsec, [0, 100] * u.arcsec, frame=aia.coordinate_frame)
     assert sample_at_coords(aia, coordinates).shape == (2,)
+
+
+def test_nearest_pixel_rounds_halves_to_even():
+    # The round trip through the WCS is not exact, so test the rounding on its own.
+    x = np.array([300.5, 301.5, -0.5, 2.4999])
+    columns, rows = nearest_pixel_indices(x, np.array([200.5, 200.5, 0.5, 2.5]))
+    assert columns.tolist() == [300, 302, 0, 2]
+    assert rows.tolist() == [200, 200, 0, 2]
 
 
 def test_sample_at_coords_rejects_outside_points(aia):

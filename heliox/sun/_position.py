@@ -6,6 +6,10 @@ ERFA through `astropy` for precession, nutation and the planetary ephemeris so
 that the results agree with astropy's own frames rather than drifting from
 them.
 
+The arithmetic of the ephemeris lives in the Rust core (``heliox._core.sun``).
+This module converts times and astropy quantities into plain arrays, calls the
+Rust functions and wraps the results back into quantities.
+
 Users should call the public wrappers in `heliox.sun.sun` rather than these.
 """
 
@@ -23,38 +27,32 @@ from astropy.coordinates import (
 )
 from astropy.coordinates.representation import CartesianRepresentation
 
+from heliox._core import sun as _rust
 from heliox.sun import constants
 from heliox.time import parse_time
 
 __all__ = []
 
-# Orientation of the Sun's rotation axis, as determined by Carrington and
-# adopted by the IAU. See Meeus chapter 29.
-_INCLINATION = 7.25 * u.deg
-_NODE_EPOCH_JD = 2396758.0
-_NODE_LONGITUDE = 73.666667 * u.deg
-_NODE_RATE = 1.3958333 * u.deg  # per Julian century
 
-# Carrington defined rotation 1 as beginning at this Julian date, and adopted a
-# sidereal rotation period of 25.38 days (a mean synodic period of 27.2753 days).
-_CARRINGTON_EPOCH_JD = 2398167.4
-_CARRINGTON_SIDEREAL_PERIOD = 25.38 * u.day
-_CARRINGTON_SYNODIC_PERIOD = 27.2753 * u.day
+def _flat(*values):
+    """
+    Broadcast plain numbers against each other and flatten them for Rust.
 
-# Meeus (chapter 29) measures the rotation phase from this epoch, which is
-# chosen so that the disc-centre Carrington longitude is exactly zero at the
-# start of Carrington rotation 1.
-_ROTATION_PHASE_EPOCH_JD = 2398220.0
+    Returns the common shape and a list of contiguous one-dimensional float
+    arrays, one for each input.
+    """
+    arrays = np.broadcast_arrays(*(np.asarray(value, dtype=float) for value in values))
+    return arrays[0].shape, [np.ascontiguousarray(array).ravel() for array in arrays]
+
+
+def _unshape(values, shape):
+    """Give a flat array from Rust the shape of the inputs, as a scalar when that is 0-d."""
+    return values.reshape(shape)[()]
 
 
 def _jd(t):
     """Return the TT Julian date of ``t`` as a plain float or array."""
     return parse_time(t).tt.jd
-
-
-def _julian_centuries(t):
-    """Julian centuries of TT elapsed since J2000.0."""
-    return (_jd(t) - 2451545.0) / 36525.0
 
 
 def _nutation(t):
@@ -91,8 +89,8 @@ def apparent_obliquity_of_ecliptic(t):
     right ascension come out right when it is computed from apparent longitude
     alone (Meeus, equation 25.8).
     """
-    omega = (125.04 - 1934.136 * _julian_centuries(t)) * u.deg
-    return true_obliquity_of_ecliptic(t) + 0.00256 * u.deg * np.cos(omega)
+    shape, (jd, true_obliquity) = _flat(_jd(t), true_obliquity_of_ecliptic(t).to_value(u.deg))
+    return (_unshape(_rust.apparent_obliquity(jd, true_obliquity), shape) * u.deg).to(u.arcsec)
 
 
 def _geometric_sun_from_earth(t):
@@ -175,12 +173,11 @@ def apparent_latitude(t):
 
 def _ecliptic_to_equatorial(lon, lat, obliquity):
     """Rotate ecliptic coordinates into equatorial ones about the given obliquity."""
-    ra = np.arctan2(
-        np.sin(lon) * np.cos(obliquity) - np.tan(lat) * np.sin(obliquity),
-        np.cos(lon),
+    shape, (lon, lat, obliquity) = _flat(
+        lon.to_value(u.deg), lat.to_value(u.deg), obliquity.to_value(u.deg)
     )
-    dec = np.arcsin(np.sin(lat) * np.cos(obliquity) + np.cos(lat) * np.sin(obliquity) * np.sin(lon))
-    return (ra.to(u.deg) % (360 * u.deg), dec.to(u.deg))
+    ra, dec = _rust.ecliptic_to_equatorial(lon, lat, obliquity)
+    return _unshape(ra, shape) * u.deg, _unshape(dec, shape) * u.deg
 
 
 def true_rightascension(t):
@@ -235,31 +232,26 @@ def mean_anomaly(t):
     Strictly this is the mean anomaly of the Earth in its orbit, but the two
     differ only by the 180 degrees between the two viewpoints.
     """
-    centuries = _julian_centuries(t)
-    degrees = 357.52911 + 35999.05029 * centuries - 0.0001537 * centuries**2
-    return (degrees * u.deg) % (360 * u.deg)
+    shape, (jd,) = _flat(_jd(t))
+    return _unshape(_rust.mean_anomaly(jd), shape) * u.deg
 
 
 def eccentricity_sun_earth_orbit(t):
     """The eccentricity of the Earth's orbit, from Meeus equation 25.4."""
-    centuries = _julian_centuries(t)
-    return 0.016708634 - 0.000042037 * centuries - 0.0000001267 * centuries**2
+    shape, (jd,) = _flat(_jd(t))
+    return _unshape(_rust.eccentricity(jd), shape)
 
 
 def equation_of_center(t):
     """The Sun's equation of the centre: true anomaly minus mean anomaly."""
-    centuries = _julian_centuries(t)
-    anomaly = mean_anomaly(t)
-    return (
-        (1.914602 - 0.004817 * centuries - 0.000014 * centuries**2) * np.sin(anomaly)
-        + (0.019993 - 0.000101 * centuries) * np.sin(2 * anomaly)
-        + 0.000289 * np.sin(3 * anomaly)
-    ) * u.deg
+    shape, (jd,) = _flat(_jd(t))
+    return _unshape(_rust.equation_of_centre(jd), shape) * u.deg
 
 
 def true_anomaly(t):
     """The Sun's true anomaly."""
-    return (mean_anomaly(t) + equation_of_center(t)) % (360 * u.deg)
+    shape, (jd,) = _flat(_jd(t))
+    return _unshape(_rust.true_anomaly(jd), shape) * u.deg
 
 
 def angular_radius(t):
@@ -277,13 +269,9 @@ def angular_radius(t):
     only about 0.01 arcseconds from the Earth, but it matters when a coordinate
     is projected onto the surface right at the limb.
     """
-    solar_semidiameter = constants.radius.to(u.AU)
-    return np.arcsin(solar_semidiameter / earth_distance(t)).to(u.arcsec)
-
-
-def _node_longitude(t):
-    """The ecliptic longitude of the ascending node of the Sun's equator."""
-    return _NODE_LONGITUDE + _NODE_RATE * (_jd(t) - _NODE_EPOCH_JD) / 36525.0
+    solar_semidiameter = constants.radius.to_value(u.AU)
+    shape, (distance,) = _flat(earth_distance(t).to_value(u.AU))
+    return _unshape(_rust.angular_radius(distance, solar_semidiameter), shape) * u.arcsec
 
 
 def B0(t):
@@ -294,9 +282,8 @@ def B0(t):
     Earth sees the solar north pole tipped towards it in September and away in
     March, so ``B0`` oscillates between about -7.25 and +7.25 degrees.
     """
-    lambda_apparent = apparent_longitude(t)
-    node = _node_longitude(t)
-    return np.arcsin(np.sin(lambda_apparent - node) * np.sin(_INCLINATION)).to(u.deg)
+    shape, (jd, lambda_apparent) = _flat(_jd(t), apparent_longitude(t).to_value(u.deg))
+    return _unshape(_rust.b0(lambda_apparent, jd), shape) * u.deg
 
 
 def L0(t):
@@ -305,25 +292,8 @@ def L0(t):
 
     This decreases from 360 to 0 degrees over each 27.2753 day synodic rotation.
     """
-    lambda_apparent = apparent_longitude(t)
-    node = _node_longitude(t)
-
-    # The rigid-body rotation phase since Meeus's epoch.
-    theta = (
-        (_jd(t) - _ROTATION_PHASE_EPOCH_JD)
-        / _CARRINGTON_SIDEREAL_PERIOD.to_value(u.day)
-        * 360
-        * u.deg
-    )
-
-    # Position angle measured along the solar equator from the ascending node.
-    # ``arctan2`` keeps it in the correct quadrant, which a plain ``arctan``
-    # would not.
-    eta = np.arctan2(
-        -np.sin(lambda_apparent - node) * np.cos(_INCLINATION),
-        -np.cos(lambda_apparent - node),
-    )
-    return ((eta.to(u.deg) - theta) % (360 * u.deg)).to(u.deg)
+    shape, (jd, lambda_apparent) = _flat(_jd(t), apparent_longitude(t).to_value(u.deg))
+    return _unshape(_rust.l0(lambda_apparent, jd), shape) * u.deg
 
 
 def P(t):
@@ -333,13 +303,12 @@ def P(t):
     Measured eastward (counter-clockwise) from geocentric north, it varies
     between about -26.3 and +26.3 degrees over the year.
     """
-    lambda_apparent = apparent_longitude(t)
-    node = _node_longitude(t)
-    obliquity = apparent_obliquity_of_ecliptic(t)
-
-    x = np.arctan(-np.cos(lambda_apparent) * np.tan(obliquity))
-    y = np.arctan(-np.cos(lambda_apparent - node) * np.tan(_INCLINATION))
-    return ((x + y).to(u.deg) + 180 * u.deg) % (360 * u.deg) - 180 * u.deg
+    shape, (jd, lambda_apparent, obliquity) = _flat(
+        _jd(t),
+        apparent_longitude(t).to_value(u.deg),
+        apparent_obliquity_of_ecliptic(t).to_value(u.deg),
+    )
+    return _unshape(_rust.p_angle(lambda_apparent, obliquity, jd), shape) * u.deg
 
 
 def _hour_angle(t, location):
@@ -357,13 +326,12 @@ def parallactic_angle(t, location):
     eastward (counter-clockwise) from celestial north. It passes through zero
     at local apparent noon.
     """
-    hour_angle = _hour_angle(t, location)
-    dec = apparent_declination(t)
-    lat = location.lat
-    return np.arctan2(
-        np.sin(hour_angle),
-        np.tan(lat) * np.cos(dec) - np.sin(dec) * np.cos(hour_angle),
-    ).to(u.deg)
+    shape, (hour_angle, dec, lat) = _flat(
+        _hour_angle(t, location).to_value(u.deg),
+        apparent_declination(t).to_value(u.deg),
+        location.lat.to_value(u.deg),
+    )
+    return _unshape(_rust.parallactic_angle(hour_angle, dec, lat), shape) * u.deg
 
 
 def orientation(location, t):
@@ -387,5 +355,7 @@ def orientation(location, t):
     This is the rotation you would have to apply to an image taken by a camera
     held level at that site to bring solar north to the top of the frame.
     """
-    angle = P(t) - parallactic_angle(t, location)
-    return ((angle + 180 * u.deg) % (360 * u.deg) - 180 * u.deg).to(u.deg)
+    shape, (p, parallactic) = _flat(
+        P(t).to_value(u.deg), parallactic_angle(t, location).to_value(u.deg)
+    )
+    return _unshape(_rust.orientation(p, parallactic), shape) * u.deg

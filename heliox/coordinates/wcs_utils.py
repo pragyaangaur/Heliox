@@ -13,6 +13,7 @@ import astropy.units as u
 from astropy.wcs import WCS
 from astropy.wcs.utils import FRAME_WCS_MAPPINGS, WCS_FRAME_MAPPINGS
 
+from heliox._core import wcs as _core_wcs
 from heliox.coordinates.frames import (
     Heliocentric,
     HeliographicCarrington,
@@ -27,24 +28,16 @@ __all__ = [
     "solar_frame_to_wcs_mapping",
 ]
 
-#: Maps the first four characters of a solar ``CTYPE`` onto a frame class.
-_CTYPE_TO_FRAME = {
-    "HPLN": Helioprojective,
-    "HPLT": Helioprojective,
-    "HGLN": HeliographicStonyhurst,
-    "HGLT": HeliographicStonyhurst,
-    "CRLN": HeliographicCarrington,
-    "CRLT": HeliographicCarrington,
-    "SOLX": Heliocentric,
-    "SOLY": Heliocentric,
+#: The frame class for each solar family name. The Rust core reads and names
+#: families by these names, and recognises their ``CTYPE`` keywords.
+_FAMILY_FRAME = {
+    "helioprojective": Helioprojective,
+    "stonyhurst": HeliographicStonyhurst,
+    "carrington": HeliographicCarrington,
+    "heliocentric": Heliocentric,
 }
 
-_FRAME_TO_CTYPE = {
-    Helioprojective: ("HPLN", "HPLT"),
-    HeliographicStonyhurst: ("HGLN", "HGLT"),
-    HeliographicCarrington: ("CRLN", "CRLT"),
-    Heliocentric: ("SOLX", "SOLY"),
-}
+_FRAME_FAMILY = {frame: family for family, frame in _FAMILY_FRAME.items()}
 
 
 def _observer_from_wcs(wcs):
@@ -121,11 +114,10 @@ def solar_wcs_frame_mapping(wcs):
     if hasattr(wcs, "coordinate_frame"):
         return wcs.coordinate_frame
 
-    prefixes = [ctype[:4].upper() for ctype in wcs.wcs.ctype]
-    frame_classes = {_CTYPE_TO_FRAME[p] for p in prefixes if p in _CTYPE_TO_FRAME}
-    if len(frame_classes) != 1:
+    family = _core_wcs.solar_family(list(wcs.wcs.ctype))
+    if family is None:
         return None
-    frame_class = frame_classes.pop()
+    frame_class = _FAMILY_FRAME[family]
 
     obstime = _obstime_from_wcs(wcs)
     observer = _observer_from_wcs(wcs)
@@ -168,20 +160,16 @@ def solar_frame_to_wcs_mapping(frame, projection="TAN"):
     ['HPLN-TAN', 'HPLT-TAN']
     """
     frame_class = type(frame)
-    if frame_class not in _FRAME_TO_CTYPE:
+    if frame_class not in _FRAME_FAMILY:
         return None
+    family = _FRAME_FAMILY[frame_class]
 
     wcs = WCS(naxis=2)
-    lon_type, lat_type = _FRAME_TO_CTYPE[frame_class]
-    wcs.wcs.ctype = [f"{lon_type}-{projection}", f"{lat_type}-{projection}"]
+    wcs.wcs.ctype = list(_core_wcs.ctype_names(family, projection))
+    wcs.wcs.cunit = [_core_wcs.axis_unit(family)] * 2
 
     if frame_class is Helioprojective:
-        wcs.wcs.cunit = ["arcsec", "arcsec"]
         wcs.wcs.aux.rsun_ref = frame.rsun.to_value(u.m)
-    elif frame_class is Heliocentric:
-        wcs.wcs.cunit = ["m", "m"]
-    else:
-        wcs.wcs.cunit = ["deg", "deg"]
 
     if getattr(frame, "obstime", None) is not None:
         wcs.wcs.dateobs = frame.obstime.utc.isot

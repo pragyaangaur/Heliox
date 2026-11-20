@@ -11,6 +11,8 @@ from astropy.coordinates import (
 )
 from astropy.coordinates.representation import CartesianRepresentation
 
+from heliox._core import coordinates as _rust
+from heliox.coordinates._matrices import _flat
 from heliox.time import parse_time
 
 __all__ = [
@@ -61,7 +63,7 @@ def get_body_heliographic_stonyhurst(body, time, observer=None, *, quiet=False):
         observer_position = _heliocentric_icrs(observer, obstime)
         for _ in range(2):
             body_position = _body_offset(body, emitted)
-            separation = (body_position - observer_position).norm()
+            separation = _vector_length(body_position - observer_position)
             emitted = obstime - (separation / _light_speed()).to(u.s)
 
     # The offset is already measured from the centre of the Sun, so it belongs
@@ -83,6 +85,19 @@ def _body_offset(body, time):
     with solar_system_ephemeris.set(solar_system_ephemeris.get()):
         offset = get_body_barycentric(body, time) - get_body_barycentric("sun", time)
     return CartesianRepresentation(offset.xyz)
+
+
+def _vector_length(vector):
+    """
+    The length of a Cartesian vector, keeping its unit.
+
+    The vector's components lie along the leading axis, as for a
+    `~astropy.coordinates.CartesianRepresentation`.
+    """
+    xyz = vector.xyz
+    components = np.moveaxis(xyz.to_value(xyz.unit), 0, -1)
+    lengths = _rust.vector_norms(_flat(components)).reshape(components.shape[:-1])
+    return lengths * xyz.unit
 
 
 def _heliocentric_icrs(coord, obstime):

@@ -6,8 +6,8 @@ instrument archives and FITS headers, as well as Python, NumPy, pandas and
 astropy time objects, and always returns an `astropy.time.Time`.
 """
 
-import re
-from datetime import date, datetime
+import unicodedata
+from datetime import date, datetime, timedelta, timezone
 from functools import singledispatch
 
 import numpy as np
@@ -17,6 +17,7 @@ import astropy.units as u
 from astropy.time import Time
 
 import heliox.time.timeformats  # noqa: F401  (registers extra Time formats)
+from heliox._core.time import TimeFormats
 
 __all__ = [
     "parse_time",
@@ -26,23 +27,6 @@ __all__ = [
     "day_of_year",
     "TIME_FORMAT_LIST",
 ]
-
-# The subset of strptime directives we need, expressed as regular expressions so
-# that a candidate string can be matched without repeatedly raising ValueError.
-_REGEX_PARTS = {
-    "%Y": r"(?P<year>\d{4})",
-    "%y": r"(?P<yeartwo>\d{2})",
-    "%m": r"(?P<month>\d{1,2})",
-    "%d": r"(?P<day>\d{1,2})",
-    "%j": r"(?P<dayofyear>\d{1,3})",
-    "%H": r"(?P<hour>\d{1,2})",
-    "%M": r"(?P<minute>\d{1,2})",
-    "%S": r"(?P<second>\d{1,2})",
-    "%f": r"(?P<microsecond>\d+)",
-    "%b": r"(?P<monthstr>[a-zA-Z]{3})",
-    "%B": r"(?P<monthstrfull>[a-zA-Z]+)",
-    "%z": r"(?P<tzoffset>[+-]\d{2}:?\d{2}|Z)",
-}
 
 #: Time formats understood by `parse_time`, in the order they are tried.
 TIME_FORMAT_LIST = [
@@ -77,49 +61,56 @@ TIME_FORMAT_LIST = [
 ]
 
 
-def _build_regex(fmt):
-    """Turn a strptime format string into an anchored regular expression."""
-    pattern = ""
-    index = 0
-    while index < len(fmt):
-        if fmt[index] == "%" and index + 1 < len(fmt):
-            directive = fmt[index : index + 2]
-            if directive not in _REGEX_PARTS:
-                raise ValueError(f"Unsupported directive {directive!r} in {fmt!r}")
-            pattern += _REGEX_PARTS[directive]
-            index += 2
-        else:
-            pattern += re.escape(fmt[index])
-            index += 1
-    return re.compile("^" + pattern + "$")
-
-
-_COMPILED_FORMATS = [(fmt, _build_regex(fmt)) for fmt in TIME_FORMAT_LIST]
-
-
-def _normalise_string(value):
+def _to_local_time(text, offset):
     """
-    Convert a recognised time string into an ISO-8601 string astropy accepts.
-
-    Returns `None` if the string does not match any known format.
+    Convert a wall time with a fixed UTC offset into local time, without the offset.
     """
-    text = value.strip()
-    for fmt, regex in _COMPILED_FORMATS:
-        if regex.match(text) is None:
-            continue
-        # ``%f`` in strptime accepts at most six digits, but archives sometimes
-        # record more precision than that; truncate rather than reject.
-        candidate = text
-        if "%f" in fmt:
-            candidate = re.sub(r"(\.\d{6})\d+", r"\1", candidate)
-        try:
-            parsed = datetime.strptime(candidate, fmt)
-        except ValueError:
-            continue
-        if parsed.tzinfo is not None:
-            parsed = parsed.astimezone(tz=None).replace(tzinfo=None)
-        return parsed.isoformat(timespec="microseconds")
-    return None
+    aware = datetime.fromisoformat(text).replace(tzinfo=timezone(timedelta(seconds=offset)))
+    return aware.astimezone(tz=None).replace(tzinfo=None).isoformat(timespec="microseconds")
+
+
+def _map_unicode_digits(text):
+    """
+    Replace Unicode decimal digits with their ASCII values, for the Rust core.
+
+    Returns the mapped text and the positions of the characters that were mapped.
+    The core needs the positions because strptime accepts only ASCII digits in
+    some fields, and the positions let it apply the same rule.
+    """
+    if text.isascii():
+        return text, []
+    positions = [
+        index for index, char in enumerate(text) if char.isdecimal() and not char.isascii()
+    ]
+    mapped = list(text)
+    for index in positions:
+        mapped[index] = str(unicodedata.decimal(text[index]))
+    return "".join(mapped), positions
+
+
+def _normalised(parsed):
+    """Turn one result from the Rust parser into an ISO-8601 string, or `None`."""
+    if parsed is None:
+        return None
+    text, offset = parsed
+    return text if offset is None else _to_local_time(text, offset)
+
+
+#: The formats in `TIME_FORMAT_LIST`, compiled once by the Rust core.
+_TIME_FORMATS = TimeFormats(TIME_FORMAT_LIST)
+
+
+def _normalise_strings(values):
+    """
+    Convert recognised time strings into ISO-8601 strings astropy accepts.
+
+    Each element of the result is `None` if that string does not match any known
+    format. All the strings are matched in a single call to the Rust core.
+    """
+    return [
+        _normalised(parsed)
+        for parsed in _TIME_FORMATS.parse([_map_unicode_digits(value.strip()) for value in values])
+    ]
 
 
 @singledispatch
@@ -177,6 +168,10 @@ def _convert_time_tuple(time_string, **kwargs):
 def _convert_time_ndarray(time_string, **kwargs):
     if time_string.dtype.kind == "M":
         return Time(time_string.astype("datetime64[ns]").astype(str).tolist(), **kwargs)
+    if time_string.dtype.kind == "U":
+        normalised = _normalise_strings(time_string.ravel().tolist())
+        if all(item is not None for item in normalised):
+            return Time(normalised, **kwargs).reshape(time_string.shape)
     return Time([parse_time(each, **kwargs) for each in time_string.ravel()], **kwargs).reshape(
         time_string.shape
     )
@@ -185,7 +180,7 @@ def _convert_time_ndarray(time_string, **kwargs):
 @convert_time.register(list)
 def _convert_time_list(time_list, **kwargs):
     if all(isinstance(item, str) for item in time_list):
-        normalised = [_normalise_string(item) for item in time_list]
+        normalised = _normalise_strings(time_list)
         if all(item is not None for item in normalised):
             return Time(normalised, **kwargs)
     return Time([parse_time(item, **kwargs) for item in time_list])
@@ -195,7 +190,7 @@ def _convert_time_list(time_list, **kwargs):
 def _convert_time_str(time_string, **kwargs):
     if time_string.lower() == "now":
         return Time.now()
-    normalised = _normalise_string(time_string)
+    normalised = _normalise_strings([time_string])[0]
     if normalised is not None:
         return Time(normalised, **kwargs)
     # Let astropy have a go: it handles JD/MJD strings and its own formats.

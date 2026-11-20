@@ -5,21 +5,20 @@ import numpy as np
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 
+from heliox._core import wcs as _core_wcs
 from heliox.coordinates.frames import (
     HeliographicCarrington,
     HeliographicStonyhurst,
     Helioprojective,
     SunPyBaseCoordinateFrame,
 )
+from heliox.coordinates.wcs_utils import _FRAME_FAMILY
 from heliox.util.metadata import MetaDict
 
 __all__ = ["make_fitswcs_header", "get_observer_meta", "make_heliographic_header"]
 
-_FRAME_CTYPES = {
-    Helioprojective: ("HPLN", "HPLT"),
-    HeliographicStonyhurst: ("HGLN", "HGLT"),
-    HeliographicCarrington: ("CRLN", "CRLT"),
-}
+#: The frames that a FITS header can describe. Heliocentric is not one of them.
+_HEADER_FRAMES = (Helioprojective, HeliographicStonyhurst, HeliographicCarrington)
 
 
 def get_observer_meta(observer, rsun=None):
@@ -64,7 +63,8 @@ def get_observer_meta(observer, rsun=None):
     }
     if rsun is not None:
         meta["rsun_ref"] = float(u.Quantity(rsun).to_value(u.m))
-        meta["rsun_obs"] = float(np.arcsin(u.Quantity(rsun) / stonyhurst.radius).to_value(u.arcsec))
+        ratio = (u.Quantity(rsun) / stonyhurst.radius).to_value(u.one)
+        meta["rsun_obs"] = _core_wcs.asin_arcsec(ratio)
     return meta
 
 
@@ -153,7 +153,7 @@ def make_fitswcs_header(
             "The coordinate must be in a heliox solar frame, so that heliox knows "
             "which CTYPE values to write."
         )
-    if type(frame) not in _FRAME_CTYPES:
+    if type(frame) not in _HEADER_FRAMES:
         raise ValueError(f"heliox cannot write a FITS header for the {type(frame).__name__} frame.")
     if frame.obstime is None:
         raise ValueError("The coordinate needs an obstime.")
@@ -161,7 +161,7 @@ def make_fitswcs_header(
         raise ValueError("Give either a rotation angle or a rotation matrix, not both.")
 
     if reference_pixel is None:
-        reference_pixel = u.Quantity([(shape[1] - 1) / 2, (shape[0] - 1) / 2], u.pix)
+        reference_pixel = u.Quantity(_core_wcs.default_reference_pixel(shape[0], shape[1]), u.pix)
     reference_pixel = u.Quantity(reference_pixel, u.pix)
 
     if scale is None:
@@ -177,9 +177,9 @@ def make_fitswcs_header(
     meta["naxis1"] = shape[1]
     meta["naxis2"] = shape[0]
 
-    lon_type, lat_type = _FRAME_CTYPES[type(frame)]
-    meta["ctype1"] = f"{lon_type}-{projection_code}"
-    meta["ctype2"] = f"{lat_type}-{projection_code}"
+    meta["ctype1"], meta["ctype2"] = _core_wcs.ctype_names(
+        _FRAME_FAMILY[type(frame)], projection_code
+    )
     meta["cunit1"] = str(axis_unit)
     meta["cunit2"] = str(axis_unit)
     # FITS pixel coordinates start at one.
@@ -192,8 +192,9 @@ def make_fitswcs_header(
 
     if rotation_angle is not None:
         angle = u.Quantity(rotation_angle, u.deg)
-        cos, sin = np.cos(angle).value, np.sin(angle).value
-        rotation_matrix = np.array([[cos, -sin], [sin, cos]])
+        if not angle.isscalar:
+            raise ValueError("The rotation matrix must be 2x2.")
+        rotation_matrix = _core_wcs.rotation_matrix(float(angle.value))
     if rotation_matrix is not None:
         matrix = np.asarray(rotation_matrix, dtype=float)
         if matrix.shape != (2, 2):
@@ -289,7 +290,6 @@ def make_heliographic_header(
     return make_fitswcs_header(
         shape,
         reference,
-        reference_pixel=u.Quantity([(columns - 1) / 2, (rows - 1) / 2], u.pix),
-        scale=u.Quantity([360 / columns, 180 / rows], u.deg / u.pix),
+        scale=u.Quantity(_core_wcs.full_sun_scale(rows, columns), u.deg / u.pix),
         projection_code=projection_code,
     )

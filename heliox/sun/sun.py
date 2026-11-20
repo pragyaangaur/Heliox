@@ -12,18 +12,18 @@ Examples
 """
 
 import numpy as np
-from scipy.optimize import brentq
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
+from heliox._core import sun as _rust
 from heliox.sun._position import (
-    _CARRINGTON_EPOCH_JD,
-    _CARRINGTON_SYNODIC_PERIOD,
     B0,
     L0,
     P,
+    _flat,
+    _unshape,
     angular_radius,
     apparent_declination,
     apparent_latitude,
@@ -132,18 +132,8 @@ def carrington_rotation_number(t="now"):
     2143.094
     """
     time = parse_time(t)
-    # A first guess from the mean synodic period, good to within a rotation.
-    estimate = (time.tt.jd - _CARRINGTON_EPOCH_JD) / _CARRINGTON_SYNODIC_PERIOD.to_value(u.day) + 1
-    estimate_int, estimate_frac = np.divmod(estimate, 1)
-
-    # The exact fraction: L0 runs from 360 down to 0 across one rotation.
-    exact_frac = 1 - L0(time).to_value(u.deg) / 360
-
-    # The estimate and the exact fraction can straddle a rotation boundary, in
-    # which case the integer part needs nudging by one.
-    estimate_int += np.round(estimate_frac - exact_frac)
-
-    result = estimate_int + exact_frac
+    shape, (jd, l0) = _flat(time.tt.jd, L0(time).to_value(u.deg))
+    result = _unshape(_rust.carrington_number(jd, l0), shape)
     return result if result.shape else float(result)
 
 
@@ -179,22 +169,12 @@ def carrington_rotation_time(crot, longitude=None):
             raise ValueError("Carrington longitude must be between 0 and 360 degrees.")
         crot = crot + (1 - longitude.to_value(u.deg) / 360)
 
-    def solve(target):
-        # Bracket the root generously: the mean period is only approximate, so
-        # allow a couple of days of slack on either side.
-        guess = (target - 1) * _CARRINGTON_SYNODIC_PERIOD.to_value(u.day) + _CARRINGTON_EPOCH_JD
-        lower, upper = guess - 3, guess + 3
+    def rotation_numbers(jd):
+        return carrington_rotation_number(Time(jd, format="jd", scale="tt"))
 
-        def residual(jd):
-            return carrington_rotation_number(Time(jd, format="jd", scale="tt")) - target
-
-        return brentq(residual, lower, upper, xtol=1e-8)
-
-    if crot.shape:
-        jds = np.array([solve(float(value)) for value in crot.ravel()]).reshape(crot.shape)
-    else:
-        jds = solve(float(crot))
-    return Time(jds, format="jd", scale="tt").utc
+    shape = crot.shape
+    jds = _rust.carrington_rotation_jd(np.ascontiguousarray(crot).ravel(), rotation_numbers)
+    return Time(_unshape(jds, shape), format="jd", scale="tt").utc
 
 
 def _sun_skycoord(t, equinox_of_date=True):
