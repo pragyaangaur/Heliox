@@ -1,6 +1,9 @@
 //! The `net` submodule of `heliox._core`.
 //!
-//! Add new functions to this folder and register each one in `register`.
+//! `algebra` reduces search expressions to sums of products. Add new functions here and
+//! register each one in `register`.
+
+mod algebra;
 
 use pyo3::prelude::*;
 
@@ -15,5 +18,6 @@ fn _ping() -> &'static str {
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let module = new_submodule(parent, "net")?;
     module.add_function(wrap_pyfunction!(_ping, &module)?)?;
+    module.add_function(wrap_pyfunction!(algebra::sum_of_products, &module)?)?;
     Ok(())
 }
