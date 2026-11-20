@@ -7,6 +7,7 @@ mean that an operation is not mirrored, so no tolerance is used anywhere.
 """
 
 import inspect
+import threading
 
 import astropy.units as u
 import numpy as np
@@ -149,6 +150,21 @@ def test_two_dimensional_and_zero_dimensional_shapes():
     assert_identical(xm._proximal_entropy(*args), rs.proximal_entropy(*args))
 
 
+@pytest.mark.parametrize("complex_input", [False, True], ids=["float64", "complex128"])
+def test_memory_layout_follows_the_original(complex_input):
+    rng = np.random.default_rng(12)
+    base = rng.normal(size=(30, 20)) * 4
+    if complex_input:
+        base = base + 0j
+    for y in (np.asfortranarray(base) * COUNT, np.ascontiguousarray(base) * COUNT):
+        args = (y, 2.0 * COUNT, 0.3 * u.s, 0.7 * u.s / COUNT)
+        expected = xm._proximal_entropy(*args)
+        actual = rs.proximal_entropy(*args)
+        assert_identical(expected, actual)
+        assert actual.flags["F_CONTIGUOUS"] == expected.flags["F_CONTIGUOUS"]
+        assert actual.flags["C_CONTIGUOUS"] == expected.flags["C_CONTIGUOUS"]
+
+
 def test_non_contiguous_input():
     rng = np.random.default_rng(7)
     y = ((rng.normal(size=(60, 60)) * 4 + 0j) * COUNT)[::2, ::3]
@@ -262,10 +278,26 @@ def test_captured_real_calls_with_float_part_only(captured_calls):
 # ---------------------------------------------------------------- full images
 
 
+@pytest.fixture
+def kernel_calls(monkeypatch):
+    """Count the calls that reach the Rust function, so a drop-in that fell back would be noticed."""
+    calls = {"n": 0}
+    real = rs._core.proximal_entropy_f64
+
+    def counting(*args, **kwargs):
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(rs._core, "proximal_entropy_f64", counting)
+    return calls
+
+
 @pytest.mark.parametrize("size", [65, 129])
-def test_full_mem_image_matches_original(pipeline, size):
+def test_full_mem_image_matches_original(pipeline, size, kernel_calls):
     expected = run_mem(pipeline, size, xm.mem)
+    assert kernel_calls["n"] == 0
     actual = run_mem(pipeline, size, rs.mem)
+    assert kernel_calls["n"] > 100
     assert xm._proximal_entropy is not rs.proximal_entropy
     assert actual.data.dtype == expected.data.dtype
     assert actual.data.shape == (size, size)
@@ -274,7 +306,7 @@ def test_full_mem_image_matches_original(pipeline, size):
     assert dict(actual.meta) == dict(expected.meta)
 
 
-def test_full_mem_image_without_map(pipeline):
+def test_full_mem_image_without_map(pipeline, kernel_calls):
     import astropy.units as u
 
     def bare(function):
@@ -282,6 +314,7 @@ def test_full_mem_image_without_map(pipeline):
 
     expected = run_mem(pipeline, 65, bare(xm.mem))
     actual = run_mem(pipeline, 65, bare(rs.mem))
+    assert kernel_calls["n"] > 100
     assert isinstance(actual, u.Quantity) == isinstance(expected, u.Quantity)
     np.testing.assert_array_equal(np.asarray(getattr(actual, "value", actual)), np.asarray(getattr(expected, "value", expected)))
 
@@ -327,6 +360,42 @@ def test_original_is_restored_after_mem():
         xm.mem = real_mem
     assert seen["inside"] is rs.proximal_entropy
     assert xm._proximal_entropy is before
+
+
+def test_overlapping_threads_leave_the_original_in_place():
+    before = xm._proximal_entropy
+    real_mem = xm.mem
+    inside = []
+    errors = []
+
+    for round_number in range(20):
+        barrier = threading.Barrier(2, timeout=10)
+
+        def spy(*args, **kwargs):
+            barrier.wait()  # both threads are inside mem at the same time
+            inside.append(xm._proximal_entropy is rs.proximal_entropy)
+            barrier.wait()
+
+        def worker(delay):
+            try:
+                threading.Event().wait(delay)
+                rs.mem(None, None, None)
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+
+        xm.mem = spy
+        try:
+            threads = [threading.Thread(target=worker, args=(d,)) for d in (0.0, 0.002 * (round_number % 3))]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        finally:
+            xm.mem = real_mem
+        assert xm._proximal_entropy is before
+    assert not errors
+    assert inside and all(inside)
+    assert rs._DEPTH == 0
 
 
 def test_original_is_restored_after_an_exception():

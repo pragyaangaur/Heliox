@@ -25,11 +25,14 @@ How the original behaves, and what is kept:
   Rust version does not.
 
 `mem` swaps ``xrayvision.mem._proximal_entropy`` for the Rust version while the original ``mem``
-runs and puts the original back in a ``finally`` block. The swap changes a module global, so
-two threads running `mem` at the same time would see each other's swap.
+runs and puts the original back in a ``finally`` block. The swap changes a module global, so a
+lock and a depth count install it on the first entry and restore the true original on the last
+exit, which keeps overlapping calls from several threads safe. Code outside `mem` that runs in
+another thread during that time also sees the Rust version, which gives the same results.
 """
 
 import contextlib
+import threading
 
 import astropy.units as apu
 import numpy as np
@@ -39,6 +42,8 @@ from heliox_rs import _core
 __all__ = ["mem", "proximal_entropy", "rust_proximal_entropy"]
 
 _ORIGINAL = None
+_LOCK = threading.Lock()
+_DEPTH = 0
 
 
 def _original():
@@ -53,6 +58,13 @@ def _original():
             raise RuntimeError(msg)
         _ORIGINAL = func
     return _ORIGINAL
+
+
+try:
+    # Capture the true original once, before any swap can happen.
+    _original()
+except ImportError:
+    pass
 
 
 def _fast_arguments(y, m, lamba, Lip, tol):
@@ -134,7 +146,12 @@ def proximal_entropy(y, m, lamba, Lip, tol=10**-10):
         out = np.zeros(c.shape, dtype=np.complex128)
         out.real = c
         c = out
-    return apu.Quantity(c.reshape(y.shape), y.unit, copy=False)
+    c = c.reshape(y.shape)
+    if y.ndim > 1 and y.flags["F_CONTIGUOUS"] and not y.flags["C_CONTIGUOUS"]:
+        # The original works with `full_like` and keeps the layout of y, so an F ordered y gives an
+        # F ordered result. This costs one copy.
+        c = np.asfortranarray(c)
+    return apu.Quantity(c, y.unit, copy=False)
 
 
 proximal_entropy._heliox_rs = True
@@ -143,16 +160,27 @@ rust_proximal_entropy = proximal_entropy
 
 @contextlib.contextmanager
 def rust_proximal_step():
-    """Use the Rust proximal step inside ``xrayvision.mem`` for the duration of the block."""
+    """Use the Rust proximal step inside ``xrayvision.mem`` for the duration of the block.
+
+    A lock and a depth count make overlapping uses from several threads safe. The first thread to
+    enter installs the Rust function and the last one to leave puts back the true original, which
+    was saved once when this module was imported.
+    """
+    global _DEPTH
     from xrayvision import mem as xm
 
-    _original()
-    saved = xm._proximal_entropy
-    xm._proximal_entropy = proximal_entropy
+    original = _original()
+    with _LOCK:
+        if _DEPTH == 0:
+            xm._proximal_entropy = proximal_entropy
+        _DEPTH += 1
     try:
         yield
     finally:
-        xm._proximal_entropy = saved
+        with _LOCK:
+            _DEPTH -= 1
+            if _DEPTH == 0:
+                xm._proximal_entropy = original
 
 
 def mem(
